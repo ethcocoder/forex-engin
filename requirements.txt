@@ -1,0 +1,16 @@
+torch>=2.0.0
+numpy>=1.24.0
+pandas>=2.0.0
+pyyaml>=6.0
+psycopg2-binary>=2.9.6
+redis>=4.6.0
+kafka-python>=2.0.2
+scikit-learn>=1.2.2
+hmmlearn>=0.3.0
+lightgbm>=3.3.5
+gymnasium>=0.28.1
+stable-baselines3>=2.0.0
+structlog>=23.1.0
+pydantic>=2.0
+PyWavelets>=1.4.1
+scipy>=1.10.1
