@@ -1,7 +1,47 @@
+import os
+import sys
+import ctypes
+import structlog
 import pandas as pd
 import numpy as np
 from typing import Any
 from features.base_feature import BaseFeature
+
+logger = structlog.get_logger()
+
+# -------------------------------------------------------------------------
+# Dynamic C++ Shared Library Loading & Type Binding
+# -------------------------------------------------------------------------
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+if sys.platform.startswith("win"):
+    _lib_name = "kalman_speedups.dll"
+elif sys.platform.startswith("darwin"):
+    _lib_name = "kalman_speedups.dylib"
+else:
+    _lib_name = "kalman_speedups.so"
+_lib_path = os.path.join(_current_dir, _lib_name)
+
+_kalman_lib = None
+if os.path.exists(_lib_path):
+    try:
+        _kalman_lib = ctypes.CDLL(_lib_path)
+        # Bind argument types and return type
+        # void kalman_filter_2d(const double* close, int n, double qp, double qv, double r, double* filtered_price, double* velocity_estimate)
+        _kalman_lib.kalman_filter_2d.argtypes = [
+            ctypes.POINTER(ctypes.c_double),  # close
+            ctypes.c_int,                     # n
+            ctypes.c_double,                  # qp
+            ctypes.c_double,                  # qv
+            ctypes.c_double,                  # r
+            ctypes.POINTER(ctypes.c_double),  # filtered_price
+            ctypes.POINTER(ctypes.c_double),  # velocity_estimate
+        ]
+        _kalman_lib.kalman_filter_2d.restype = None
+        logger.info("Successfully loaded C++ Kalman speedups shared library", path=_lib_path)
+    except Exception as e:
+        logger.warning("Failed to load C++ Kalman speedups library. Falling back to pure Python.", error=str(e))
+else:
+    logger.warning("C++ Kalman speedups library not found. Falling back to pure Python.", path=_lib_path)
 
 
 class KalmanStateFilter(BaseFeature):
@@ -33,6 +73,7 @@ class KalmanStateFilter(BaseFeature):
     def compute(self, df: pd.DataFrame, **kwargs: Any) -> pd.DataFrame:
         """
         Computes recursive 2D Kalman filter over price observations.
+        Routes to fast C++ implementation if available; otherwise falls back to pure Python.
         """
         self.validate(df)
         
@@ -44,6 +85,43 @@ class KalmanStateFilter(BaseFeature):
         qv = kwargs.get("q_velocity", self.q_velocity)
         r = kwargs.get("r_observation", self.r_observation)
         
+        # Try C++ Acceleration first
+        if _kalman_lib is not None:
+            try:
+                # Preallocate contiguous numpy arrays for C++ (no copies if possible)
+                close_arr = np.ascontiguousarray(close, dtype=np.float64)
+                filtered_price = np.ascontiguousarray(np.zeros(n), dtype=np.float64)
+                velocity_estimate = np.ascontiguousarray(np.zeros(n), dtype=np.float64)
+                
+                # Get pointers to the arrays
+                close_ptr = close_arr.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+                filtered_ptr = filtered_price.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+                velocity_ptr = velocity_estimate.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+                
+                # Call compiled C++ function
+                _kalman_lib.kalman_filter_2d(
+                    close_ptr,
+                    ctypes.c_int(n),
+                    ctypes.c_double(qp),
+                    ctypes.c_double(qv),
+                    ctypes.c_double(r),
+                    filtered_ptr,
+                    velocity_ptr
+                )
+                
+                return pd.DataFrame(
+                    {
+                        f"{self.name}_price": pd.Series(filtered_price, index=df.index),
+                        f"{self.name}_velocity": pd.Series(velocity_estimate, index=df.index),
+                    },
+                    index=df.index
+                )
+            except Exception as e:
+                logger.error("C++ Kalman execution failed, falling back to Python", error=str(e))
+
+        # -------------------------------------------------------------------------
+        # Fallback Pure Python Implementation
+        # -------------------------------------------------------------------------
         # 1. Initialize State space matrices
         # Transition matrix A
         A = np.array([[1.0, 1.0],
@@ -89,6 +167,10 @@ class KalmanStateFilter(BaseFeature):
             # Innovation Covariance: S = H P_pred H^T + R
             S = (H @ P_pred @ H.T + R)[0, 0]
             
+            # Avoid division by zero
+            if abs(S) < 1e-15:
+                S = 1e-15 if S >= 0 else -1e-15
+
             # Kalman Gain: K = P_pred H^T S^-1
             K = (P_pred @ H.T) / S
             
@@ -111,3 +193,4 @@ class KalmanStateFilter(BaseFeature):
             index=df.index
         )
         return result
+
