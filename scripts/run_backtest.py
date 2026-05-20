@@ -42,6 +42,7 @@ class TorchEnsembleModelWrapper(torch.nn.Module):
     def forward(self, x):
         x_raw = x[:, :, self.raw_feature_indices]
         x_scaled = (x_raw - self.scaler_mean) / self.scaler_std
+        x_scaled = torch.nan_to_num(x_scaled, nan=0.0, posinf=0.0, neginf=0.0)
         return self.inner_model(x_scaled)
 
 
@@ -58,7 +59,7 @@ class TemporalEnsembleWrapper:
     def predict(self, X, **kwargs):
         X_raw = X[:, :, self.raw_feature_indices]
         X_scaled = (X_raw - self.scaler_mean) / self.scaler_std
-        X_scaled = np.nan_to_num(X_scaled, 0.0)
+        X_scaled = np.nan_to_num(X_scaled, nan=0.0, posinf=0.0, neginf=0.0)
         return self.temporal_model.predict(X_scaled)
 
 
@@ -75,7 +76,7 @@ class MAMLEnsembleWrapper:
     def predict(self, X, **kwargs):
         X_raw = X[:, :, self.raw_feature_indices]
         X_scaled = (X_raw - self.scaler_mean) / self.scaler_std
-        X_scaled = np.nan_to_num(X_scaled, 0.0)
+        X_scaled = np.nan_to_num(X_scaled, nan=0.0, posinf=0.0, neginf=0.0)
         return self.maml_model.predict(X_scaled)
 
 
@@ -108,6 +109,7 @@ class RLEnsembleWrapper:
         n_samples = X.shape[0]
         feats_raw = X[:, -1, :len(self.features_cols)]
         feats = (feats_raw - self.scaler_mean) / self.scaler_std
+        feats = np.nan_to_num(feats, nan=0.0, posinf=0.0, neginf=0.0)
         
         # Pull environment observations variables from kwargs
         pos = np.full((n_samples, 1), kwargs.get("current_position", 0.0), dtype=np.float32)
@@ -117,7 +119,7 @@ class RLEnsembleWrapper:
         regimes = X[:, -1, -len(self.regime_cols):]
         
         obs = np.hstack([feats, pos, unrealized, time_ind, regimes])
-        obs = np.nan_to_num(obs, nan=0.0)
+        obs = np.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
         
         actions, _ = self.ppo_model.model.predict(obs, deterministic=True)
         
@@ -306,7 +308,7 @@ def main():
     
     regime_features_df = features_df[hmm_features]
     regime_features_scaled = (regime_features_df.values - regime_mean) / regime_std
-    regime_features_scaled = np.nan_to_num(regime_features_scaled, 0.0)
+    regime_features_scaled = np.nan_to_num(regime_features_scaled, nan=0.0, posinf=0.0, neginf=0.0)
     
     from numpy.lib.stride_tricks import sliding_window_view
     windows = sliding_window_view(regime_features_scaled, window_shape=(args.seq_len, regime_features_scaled.shape[1]))
@@ -334,7 +336,7 @@ def main():
     
     # We keep the master features UN-SCALED because individual wrappers handle their own scaling
     features_arr = features_df.copy().values
-    features_arr = np.nan_to_num(features_arr, 0.0)
+    features_arr = np.nan_to_num(features_arr, nan=0.0, posinf=0.0, neginf=0.0)
     
     # Generate windows
     windows = sliding_window_view(features_arr, window_shape=(args.seq_len, features_arr.shape[1]))
