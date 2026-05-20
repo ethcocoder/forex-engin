@@ -59,24 +59,13 @@ If you have specific C++ extensions (like the MAML speedups) that need to be com
 
 ---
 
-## 4. Setup Dummy Data (Optional, if not using TimescaleDB)
+## 4. Download Training Data
 
-If you haven't connected a remote TimescaleDB database, you can generate a small mock dataset directly in Colab to verify the training loops.
+To train the models on real market behavior, use the built-in downloader script to fetch historical tick data (e.g., from Dukascopy) directly into the Colab environment:
 
 ```python
-import pandas as pd
-import numpy as np
-
-# Create dummy training data
-dates = pd.date_range("2023-01-01", periods=10000, freq="1min")
-df = pd.DataFrame({
-    'bid': np.cumsum(np.random.randn(10000) * 0.0001) + 1.1000,
-    'ask': np.cumsum(np.random.randn(10000) * 0.0001) + 1.1002,
-    'volume': np.random.randint(1, 100, size=10000)
-}, index=dates)
-
-df.to_csv("dummy_train_data.csv")
-print("Dummy data created!")
+# Download historical tick data
+!python scripts/download_data.py --pair EUR_USD --years 5 --output data/EUR_USD_ticks.csv
 ```
 
 ---
