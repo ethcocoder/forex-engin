@@ -43,7 +43,7 @@ def create_dataset(features_df: pd.DataFrame, raw_df: pd.DataFrame, seq_len: int
     if n_samples <= 0:
         raise ValueError(f"Not enough data to create windows of length {seq_len} and horizon {horizon}.")
         
-    X_valid = X[:n_samples]
+    X_valid = np.copy(X[:n_samples])
     
     # Current time index is i + seq_len - 1
     current_idx = np.arange(seq_len - 1, seq_len - 1 + n_samples)

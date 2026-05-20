@@ -188,6 +188,9 @@ class TemporalFusionModel(BaseModel):
                 
                 epoch_loss += loss.item() * len(batch_x)
                 
+            epoch_loss /= n_samples
+            logger.info(f"Epoch {epoch + 1}/{self.epochs} completed", loss=float(epoch_loss))
+            
         return self
 
     def predict(self, X: Any, **kwargs: Any) -> np.ndarray:
