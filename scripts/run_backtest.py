@@ -155,8 +155,8 @@ class CustomVectorizedEngine(VectorizedBacktestEngine):
         predictions = []
         for i in range(0, n_samples, batch_size):
             X_batch = self.X_valid[i : i + batch_size]
-            # Call predict without signal wrapper (returns float returns predictions)
-            preds = [self.strategy.predict(X_batch[j], return_signal=False) for j in range(len(X_batch))]
+            # Call batch predict directly for massive speedup
+            preds = self.strategy.predict_batch(X_batch)
             predictions.extend(preds)
             
         predictions = np.array(predictions)

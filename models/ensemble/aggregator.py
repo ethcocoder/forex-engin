@@ -464,6 +464,54 @@ class EnsembleAggregator(BaseModel):
 
         return signal
 
+    def predict_batch(self, X: Any) -> np.ndarray:
+        """
+        Predict for a batch of samples.
+        
+        Args:
+            X: Input features of shape [n_samples, seq_len, d_feat].
+            
+        Returns:
+            np.ndarray of predictions for the batch.
+        """
+        X = np.asarray(X, dtype=np.float32)
+        if X.ndim == 2:
+            X = X[np.newaxis, :]
+
+        # Collect predictions and uncertainties
+        result = self._collect_predictions(X, with_uncertainty=True)
+        predictions = result["predictions"]
+        uncertainties = result["uncertainties"]
+        mean_uncertainty = result["mean_uncertainty"]
+
+        # Build meta-feature vector
+        meta_features = self._build_meta_features(predictions, uncertainties)
+
+        # Dual-mode inference
+        if mean_uncertainty < self.uncertainty_threshold and self.lgbm_stacker is not None:
+            # Low uncertainty: use LightGBM stacking
+            ensemble_prediction = self.lgbm_stacker.predict(meta_features)
+        else:
+            # High uncertainty: BMA fallback
+            if self.bma is not None:
+                ensemble_prediction = np.zeros(X.shape[0])
+                for i in range(X.shape[0]):
+                    sample_preds = {
+                        name: float(predictions[name][i])
+                        for name in predictions
+                        if predictions[name].ndim == 1
+                    }
+                    ensemble_prediction[i] = self.bma.average(sample_preds)
+            else:
+                # Final fallback: simple average
+                pred_values = [predictions[n] for n in predictions if predictions[n].ndim == 1]
+                if pred_values:
+                    ensemble_prediction = np.mean(np.stack(pred_values, axis=0), axis=0)
+                else:
+                    ensemble_prediction = np.zeros(X.shape[0])
+
+        return ensemble_prediction
+
     def save(self, path: str, **kwargs: Any) -> None:
         """
         Serialize the ensemble aggregator state.
