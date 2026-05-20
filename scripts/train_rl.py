@@ -24,6 +24,7 @@ def main():
     parser.add_argument("--regime_scaler", type=str, default="saved_models/regime_feature_scaler.pkl", help="Path to saved regime feature scaler")
     parser.add_argument("--timesteps", type=int, default=30000, help="Total timesteps to train per curriculum stage")
     parser.add_argument("--output", type=str, default="saved_models/rl_agent_ppo.zip", help="Path to output saved RL model zip")
+    parser.add_argument("--device", type=str, default="cpu", help="Device to train on ('cpu' or 'cuda')")
     
     args = parser.parse_args()
     
@@ -115,6 +116,7 @@ def main():
     rl_cfg = config.get("models", {}).get("rl_agent", {})
     rl_cfg["features_cols"] = features_cols
     rl_cfg["regime_cols"] = regime_cols
+    rl_cfg["device"] = args.device
     
     agent = PPOModel(name="ppo_agent", config=rl_cfg)
     trainer = RLTrainer(config=trainer_config, checkpoint_dir="saved_models/checkpoints")
