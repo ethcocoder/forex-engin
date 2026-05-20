@@ -105,23 +105,40 @@ class OandaDataDownloader:
             logger.warning("No data downloaded")
             return pd.DataFrame()
 
+import argparse
+
 if __name__ == "__main__":
-    # Example usage:
-    # 1. Get an API key from OANDA Practice account.
-    # 2. Insert it here.
+    parser = argparse.ArgumentParser(description="Download historical forex tick data from OANDA")
+    parser.add_argument("--pair", type=str, default="EUR_USD", help="Currency pair (e.g., EUR_USD)")
+    parser.add_argument("--years", type=int, default=1, help="Number of years of history to download")
+    parser.add_argument("--output", type=str, default="data/EUR_USD_ticks.csv", help="Output CSV path")
+    parser.add_argument("--token", type=str, default=None, help="OANDA Practice API Token (or set FOREX_OANDA_TOKEN env var)")
+    parser.add_argument("--account", type=str, default="000-000-0000000-000", help="OANDA Account ID (or set FOREX_OANDA_ACCOUNT env var)")
     
-    TOKEN = "YOUR_OANDA_PRACTICE_TOKEN"
-    ACCOUNT_ID = "YOUR_OANDA_ACCOUNT_ID"
+    args = parser.parse_args()
     
-    if TOKEN != "YOUR_OANDA_PRACTICE_TOKEN":
-        downloader = OandaDataDownloader(access_token=TOKEN, account_id=ACCOUNT_ID)
+    import os
+    token = args.token or os.environ.get("FOREX_OANDA_TOKEN")
+    account = args.account or os.environ.get("FOREX_OANDA_ACCOUNT")
+    
+    if not token:
+        print("ERROR: Please provide an OANDA API token.")
+        print("You can pass it via --token YOUR_TOKEN or set the FOREX_OANDA_TOKEN environment variable.")
+        print("Example: !FOREX_OANDA_TOKEN='abc123def' python scripts/download_data.py --pair EUR_USD --years 5 --output data/EUR_USD_ticks.csv")
+        exit(1)
         
-        # Download 30 days of 1-minute data for EURUSD
-        downloader.download_bulk(
-            pair="EURUSD", 
-            granularity="M1", 
-            days_back=30, 
-            output_file="../data/EURUSD_M1_30D.csv"
-        )
-    else:
-        print("Please edit scripts/download_data.py to add your OANDA API token.")
+    downloader = OandaDataDownloader(access_token=token, account_id=account)
+    
+    # Calculate days from years
+    days = args.years * 365
+    
+    # Ensure output directory exists
+    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
+    
+    # Download data
+    downloader.download_bulk(
+        pair=args.pair, 
+        granularity="M1", 
+        days_back=days, 
+        output_file=args.output
+    )

@@ -61,9 +61,15 @@ If you have specific C++ extensions (like the MAML speedups) that need to be com
 
 ## 4. Download Training Data
 
-To train the models on real market behavior, use the built-in downloader script to fetch historical tick data (e.g., from Dukascopy) directly into the Colab environment:
+To train the models on real market behavior, use the built-in downloader script to fetch historical tick data (e.g., from OANDA) directly into the Colab environment. You will need an OANDA Practice API token.
 
 ```python
+import os
+
+# Set your OANDA practice API token
+os.environ["FOREX_OANDA_TOKEN"] = "YOUR_OANDA_PRACTICE_TOKEN"
+os.environ["FOREX_OANDA_ACCOUNT"] = "YOUR_ACCOUNT_ID"
+
 # Download historical tick data
 !python scripts/download_data.py --pair EUR_USD --years 5 --output data/EUR_USD_ticks.csv
 ```
