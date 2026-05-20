@@ -31,11 +31,22 @@ def main():
         logger.error("Loaded dataframe is empty.")
         sys.exit(1)
         
+    # Synthesize bid/ask if they are missing (e.g. for yfinance OHLCV-only data)
+    if "bid" not in df.columns or "ask" not in df.columns:
+        logger.info("Raw data does not contain 'bid'/'ask' columns. Synthesizing dummy bid/ask using dynamic spread...")
+        spread_val = df["close"] * 0.0001
+        if "bid" not in df.columns:
+            df["bid"] = df["close"] - spread_val / 2.0
+        if "ask" not in df.columns:
+            df["ask"] = df["close"] + spread_val / 2.0
+            
     logger.info(f"Loaded {len(df)} rows. Instantiating feature pipeline...")
     
     # Load default configuration
     try:
-        config = load_config()
+        config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "configs", "config.yaml")
+        app_config = load_config(config_path)
+        config = app_config.model_dump() if hasattr(app_config, "model_dump") else app_config.dict()
     except Exception as e:
         logger.warning(f"Could not load full config, using empty dict: {e}")
         config = {}

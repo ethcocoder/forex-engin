@@ -91,8 +91,11 @@ def main():
     X, y = create_dataset(features_df, raw_df, args.seq_len, args.horizon)
     
     try:
-        config = load_config()
-    except Exception:
+        config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "configs", "config.yaml")
+        app_config = load_config(config_path)
+        config = app_config.model_dump() if hasattr(app_config, "model_dump") else app_config.dict()
+    except Exception as e:
+        logger.warning(f"Could not load config file, using empty dict: {e}")
         config = {}
         
     # Override config with argparse
