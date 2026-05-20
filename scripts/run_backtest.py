@@ -245,7 +245,8 @@ class CustomEventDrivenEngine(EventDrivenBacktestEngine):
             return_signal=True,
             current_position=current_pos,
             unrealized_pnl=unrealized,
-            time_indicator=hour_ind
+            time_indicator=hour_ind,
+            sample_idx=self.current_bar_index - self.seq_len + 1
         )
         
         if signal.direction != 0:
@@ -426,6 +427,11 @@ def main():
             features_df=features_df,
             config={"primary_pair": pair}
         )
+        
+        # Warm up aggregator cache for static models to speed up event loop by 100x+
+        logger.info("Warming up EnsembleAggregator prediction cache...")
+        agg.enable_caching(X_master)
+        
         results["event_driven"] = engine.run()
         
     # -------------------------------------------------------------------------

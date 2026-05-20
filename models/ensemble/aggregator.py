@@ -67,6 +67,11 @@ class EnsembleAggregator(BaseModel):
         # Feature column names for the stacking layer
         self._meta_feature_names: List[str] = []
 
+        # Caching for fast sequential event-loop backtesting
+        self._prediction_cache = {}
+        self._uncertainty_cache = {}
+        self._use_cache = False
+
         logger.info(
             "EnsembleAggregator initialized",
             uncertainty_threshold=self.uncertainty_threshold,
@@ -97,7 +102,8 @@ class EnsembleAggregator(BaseModel):
     def _collect_predictions(
         self,
         X: np.ndarray,
-        with_uncertainty: bool = True
+        with_uncertainty: bool = True,
+        **kwargs: Any
     ) -> Dict[str, Any]:
         """
         Collect predictions from all registered sub-models.
@@ -113,8 +119,15 @@ class EnsembleAggregator(BaseModel):
         """
         predictions = {}
         uncertainties = {}
+        sample_idx = kwargs.get("sample_idx", None)
 
         for name, model in self.sub_models.items():
+            if name != "rl" and self._use_cache and sample_idx is not None:
+                # Retrieve from precomputed cache
+                predictions[name] = self._prediction_cache[name][sample_idx:sample_idx+1]
+                if name in self._uncertainty_cache:
+                    uncertainties[name] = self._uncertainty_cache[name][sample_idx:sample_idx+1]
+                continue
             try:
                 if with_uncertainty and name in self._torch_models:
                     # MC Dropout for uncertainty estimation
@@ -386,7 +399,7 @@ class EnsembleAggregator(BaseModel):
             single_sample = True
 
         # Collect predictions and uncertainties
-        result = self._collect_predictions(X, with_uncertainty=True)
+        result = self._collect_predictions(X, with_uncertainty=True, **kwargs)
         predictions = result["predictions"]
         uncertainties = result["uncertainties"]
         mean_uncertainty = result["mean_uncertainty"]
@@ -511,6 +524,27 @@ class EnsembleAggregator(BaseModel):
                     ensemble_prediction = np.zeros(X.shape[0])
 
         return ensemble_prediction
+
+    def enable_caching(self, X_all: np.ndarray) -> None:
+        """
+        Precompute predictions and uncertainties for all non-RL models
+        to speed up step-by-step event-driven loop.
+        """
+        logger.info("Precomputing non-RL predictions for event-loop caching...")
+        # To avoid running RL model predictions on empty/invalid state, temporarily remove it
+        rl_model = self.sub_models.pop("rl", None)
+        
+        # Collect predictions for the entire batch
+        result = self._collect_predictions(X_all, with_uncertainty=True)
+        self._prediction_cache = result["predictions"]
+        self._uncertainty_cache = result["uncertainties"]
+        self._use_cache = True
+        
+        # Restore RL model back to registry
+        if rl_model is not None:
+            self.sub_models["rl"] = rl_model
+            
+        logger.info("Prediction cache warmed up successfully", keys=list(self._prediction_cache.keys()))
 
     def save(self, path: str, **kwargs: Any) -> None:
         """
