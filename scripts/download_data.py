@@ -42,6 +42,10 @@ class OandaDataDownloader:
         logger.info(f"Downloading {granularity} data for {instrument} from {start_time} to {end_time}")
         response = self.session.get(url, params=params)
         
+        if response.status_code == 401:
+            logger.error("401 Unauthorized. Please check your API token.")
+            raise PermissionError("OANDA API returned 401 Unauthorized. Invalid token.")
+            
         if response.status_code != 200:
             logger.error("Failed to download data", status=response.status_code, error=response.text)
             return pd.DataFrame()
