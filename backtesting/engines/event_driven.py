@@ -49,6 +49,7 @@ class EventDrivenBacktestEngine(BaseBacktestEngine):
         Data Generator -> Market Event -> Strategy -> Signal Event -> Risk -> Order -> Fill.
         """
         logger.info("Starting historical event-driven simulation")
+        self.data_handler.load_data()
         
         bar_generator = self.data_handler.stream_bars()
         
