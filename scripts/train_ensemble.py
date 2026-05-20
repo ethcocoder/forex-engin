@@ -109,11 +109,13 @@ class RegimeEnsembleWrapper:
 
 
 class RLEnsembleWrapper:
-    def __init__(self, ppo_model, features_cols, regime_cols, features_df, seq_len=60):
+    def __init__(self, ppo_model, features_cols, regime_cols, features_df, scaler_mean, scaler_std, seq_len=60):
         self.ppo_model = ppo_model
         self.features_cols = features_cols
         self.regime_cols = regime_cols
         self.features_df = features_df
+        self.scaler_mean = scaler_mean
+        self.scaler_std = scaler_std
         self.seq_len = seq_len
         
     def fit(self, X, y=None, **kwargs):
@@ -125,7 +127,8 @@ class RLEnsembleWrapper:
         n_samples = X.shape[0]
         
         # 1. Scaled raw features (first features_cols)
-        feats = X[:, -1, :len(self.features_cols)]
+        feats_raw = X[:, -1, :len(self.features_cols)]
+        feats = (feats_raw - self.scaler_mean) / self.scaler_std
         
         # 2. Position (flat during offline prediction/alignment)
         pos = np.zeros((n_samples, 1), dtype=np.float32)
@@ -236,14 +239,8 @@ def main():
     raw_feature_indices = [features_df.columns.get_loc(col) for col in features_cols]
     
     # 3. Create full master dataset for Stacker training
-    # Standardize ALL raw features in features_df before creating master window matrix
+    # We keep the master features UN-SCALED because individual wrappers handle their own scaling
     features_arr = features_df.copy().values
-    
-    # Replace raw columns with their scaled equivalents
-    for i, col in enumerate(features_cols):
-        col_idx = features_df.columns.get_loc(col)
-        features_arr[:, col_idx] = (features_arr[:, col_idx] - scaler_mean[i]) / scaler_std[i]
-        
     features_arr = np.nan_to_num(features_arr, 0.0)
     
     # Generate rolling windows of shape [n_samples, seq_len, d_feat_total]
@@ -286,7 +283,7 @@ def main():
     temporal_wrapper = TemporalEnsembleWrapper(temporal_model, scaler_mean, scaler_std, raw_feature_indices, args.device)
     maml_wrapper = MAMLEnsembleWrapper(maml_model, scaler_mean, scaler_std, raw_feature_indices, args.device)
     regime_wrapper = RegimeEnsembleWrapper(regime_model, regime_mean, regime_std, hmm_features, features_df, args.seq_len)
-    rl_wrapper = RLEnsembleWrapper(rl_model, features_cols, regime_cols, features_df, args.seq_len)
+    rl_wrapper = RLEnsembleWrapper(rl_model, features_cols, regime_cols, features_df, scaler_mean, scaler_std, args.seq_len)
     
     # 5. Instantiate Master Ensemble Aggregator
     agg = EnsembleAggregator(config=config)

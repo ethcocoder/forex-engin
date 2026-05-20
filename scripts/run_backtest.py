@@ -95,16 +95,19 @@ class RegimeEnsembleWrapper:
 
 
 class RLEnsembleWrapper:
-    def __init__(self, ppo_model, features_cols, regime_cols, features_df, seq_len=60):
+    def __init__(self, ppo_model, features_cols, regime_cols, features_df, scaler_mean, scaler_std, seq_len=60):
         self.ppo_model = ppo_model
         self.features_cols = features_cols
         self.regime_cols = regime_cols
         self.features_df = features_df
+        self.scaler_mean = scaler_mean
+        self.scaler_std = scaler_std
         self.seq_len = seq_len
         
     def predict(self, X, **kwargs):
         n_samples = X.shape[0]
-        feats = X[:, -1, :len(self.features_cols)]
+        feats_raw = X[:, -1, :len(self.features_cols)]
+        feats = (feats_raw - self.scaler_mean) / self.scaler_std
         
         # Pull environment observations variables from kwargs
         pos = np.full((n_samples, 1), kwargs.get("current_position", 0.0), dtype=np.float32)
@@ -329,12 +332,8 @@ def main():
         
     raw_feature_indices = [features_df.columns.get_loc(col) for col in features_cols]
     
-    # Scale raw features in features_df for master window dataset
+    # We keep the master features UN-SCALED because individual wrappers handle their own scaling
     features_arr = features_df.copy().values
-    for i, col in enumerate(features_cols):
-        col_idx = features_df.columns.get_loc(col)
-        features_arr[:, col_idx] = (features_arr[:, col_idx] - scaler_mean[i]) / scaler_std[i]
-        
     features_arr = np.nan_to_num(features_arr, 0.0)
     
     # Generate windows
@@ -367,7 +366,7 @@ def main():
     temporal_wrapper = TemporalEnsembleWrapper(temporal_model, scaler_mean, scaler_std, raw_feature_indices, args.device)
     maml_wrapper = MAMLEnsembleWrapper(maml_model, scaler_mean, scaler_std, raw_feature_indices, args.device)
     regime_wrapper = RegimeEnsembleWrapper(regime_model, regime_mean, regime_std, hmm_features, features_df, args.seq_len)
-    rl_wrapper = RLEnsembleWrapper(rl_model, features_cols, regime_cols, features_df, args.seq_len)
+    rl_wrapper = RLEnsembleWrapper(rl_model, features_cols, regime_cols, features_df, scaler_mean, scaler_std, args.seq_len)
     
     agg.register_model("temporal", temporal_wrapper, is_torch=True)
     agg.register_model("maml", maml_wrapper, is_torch=True)
