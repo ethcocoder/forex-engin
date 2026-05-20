@@ -393,6 +393,7 @@ class EnsembleAggregator(BaseModel):
 
         # Build meta-feature vector
         meta_features = self._build_meta_features(predictions, uncertainties)
+        logger.info("PREDICT META FEATURE NAMES", names=self._meta_feature_names, shape=meta_features.shape)
 
         # Dual-mode inference
         if mean_uncertainty < self.uncertainty_threshold and self.lgbm_stacker is not None:
