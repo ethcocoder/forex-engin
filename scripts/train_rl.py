@@ -6,6 +6,8 @@ import pandas as pd
 import structlog
 import pickle
 
+import torch
+
 # Ensure the root directory is in the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -24,7 +26,7 @@ def main():
     parser.add_argument("--regime_scaler", type=str, default="saved_models/regime_feature_scaler.pkl", help="Path to saved regime feature scaler")
     parser.add_argument("--timesteps", type=int, default=30000, help="Total timesteps to train per curriculum stage")
     parser.add_argument("--output", type=str, default="saved_models/rl_agent_ppo.zip", help="Path to output saved RL model zip")
-    parser.add_argument("--device", type=str, default="cpu", help="Device to train on ('cpu' or 'cuda')")
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Device to train on ('cpu' or 'cuda')")
     
     args = parser.parse_args()
     

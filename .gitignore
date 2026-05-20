@@ -96,3 +96,8 @@ cython_debug/
 # OS-specific files
 .DS_Store
 Thumbs.db
+
+# Allow compiled C++ speedups/DLLs/SO files
+!*.dll
+!*.so
+!*.dylib
