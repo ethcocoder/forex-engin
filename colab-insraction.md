@@ -118,7 +118,18 @@ Now, compile the RL speedups and train the Reinforcement Learning Agent (PPO mod
 !python scripts/train_rl.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv --timesteps 30000
 ```
 
-*(Note: Training scripts for the RL Agent and Meta-Learner are currently being written and will be added here shortly!)*
+### Step 5E: Train the Model-Agnostic Meta-Learner (MAML)
+Lastly, compile the MAML speedups and train the Model-Agnostic Meta-Learner. MAML learns a general initialization parameter set that can rapidly adapt to new market regimes or few-shot environments in just 5 gradient steps.
+
+```python
+# Compile MAML speedups
+!g++ -O3 -shared -fPIC -o models/meta_learner/maml_speedups.so models/meta_learner/maml_speedups.cpp
+
+# Train MAML Model (default 50 epochs)
+!python scripts/train_meta.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv --epochs 50
+```
+
+*(Note: The ensemble backtesting script is the final stage to combine all predictions!)*
 
 ---
 
@@ -136,6 +147,8 @@ files.download("saved_models/regime_ensemble.pkl")
 files.download("saved_models/regime_ensemble.pkl.hmm")
 files.download("saved_models/regime_ensemble.pkl.lstm")
 files.download("saved_models/regime_feature_scaler.pkl")
+files.download("saved_models/rl_agent_ppo.zip")
+files.download("saved_models/maml_model.pt")
 ```
 
 Alternatively, you can mount your Google Drive to save weights automatically:
