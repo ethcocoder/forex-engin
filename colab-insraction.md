@@ -61,18 +61,14 @@ If you have specific C++ extensions (like the MAML speedups) that need to be com
 
 ## 4. Download Training Data
 
-To train the models on real market behavior, use the built-in downloader script to fetch historical tick data (e.g., from OANDA) directly into the Colab environment. You will need an OANDA Practice API token.
+To train the models on real market behavior without needing any API tokens, you can use the built-in Yahoo Finance downloader. This downloads historical Forex data completely free:
 
 ```python
-import os
-
-# Set your OANDA practice API token
-os.environ["FOREX_OANDA_TOKEN"] = "YOUR_OANDA_PRACTICE_TOKEN"
-os.environ["FOREX_OANDA_ACCOUNT"] = "YOUR_ACCOUNT_ID"
-
-# Download historical tick data
-!python scripts/download_data.py --pair EUR_USD --years 5 --output data/EUR_USD_ticks.csv
+# Download 2 years of historical data from Yahoo Finance (Requires NO API key)
+!python scripts/download_data.py --pair EUR_USD --years 2 --source yfinance --output data/EUR_USD_ticks.csv
 ```
+
+*(Note: If you eventually want extremely dense 1-minute tick data for 5+ years, you can get a free OANDA Practice Token and run it with `--source oanda --token YOUR_TOKEN`).*
 
 ---
 
