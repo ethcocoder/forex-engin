@@ -118,8 +118,8 @@ class RegimeModelConfig(BaseModel):
     n_states: int = Field(default=4)
     hmm_features: List[str] = Field(
         default_factory=lambda: [
-            "realized_vol",
-            "hurst_exponent",
+            "volatility_cc",
+            "mean_reversion_hurst",
             "trend_strength",
             "vpin",
         ]

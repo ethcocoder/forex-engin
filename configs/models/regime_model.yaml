@@ -1,6 +1,6 @@
 n_states: 4
 hmm_features:
-  - "realized_vol"
-  - "hurst_exponent"
+  - "volatility_cc"
+  - "mean_reversion_hurst"
   - "trend_strength"
   - "vpin"
