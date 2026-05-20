@@ -55,6 +55,9 @@ If you have specific C++ extensions (like the MAML speedups) that need to be com
 ```python
 # Compile MAML C++ speedups for Linux (.so)
 !g++ -O3 -shared -fPIC -o models/meta_learner/maml_speedups.so models/meta_learner/maml_speedups.cpp
+
+# Compile RL Environment C++ speedups for Linux (.so)
+!g++ -O3 -shared -fPIC -o models/rl_agent/rl_speedups.so models/rl_agent/rl_speedups.cpp
 ```
 
 ---
@@ -105,6 +108,14 @@ Next, train the unsupervised market regime ensemble (Gaussian HMM + LSTM Sequenc
 
 # (Optional) Run walk-forward cross-validation to assess LSTM-HMM alignment consistency
 # !python scripts/train_regime.py --features data/EUR_USD_features.csv --epochs 10 --cv
+```
+
+### Step 5D: Train the Reinforcement Learning Agent
+Now, compile the RL speedups and train the Reinforcement Learning Agent (PPO model) using the volatility curriculum learning trainer. This agent uses both technical features and predicted market regimes to execute optimized trades.
+
+```python
+# Train the PPO agent
+!python scripts/train_rl.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv --timesteps 30000
 ```
 
 *(Note: Training scripts for the RL Agent and Meta-Learner are currently being written and will be added here shortly!)*
