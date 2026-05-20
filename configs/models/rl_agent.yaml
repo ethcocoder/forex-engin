@@ -1,0 +1,7 @@
+algorithm: "PPO"
+learning_rate: 0.0003
+n_steps: 2048
+batch_size: 64
+ent_coef: 0.01
+gamma: 0.99
+gae_lambda: 0.95

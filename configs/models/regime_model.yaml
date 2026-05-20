@@ -1,0 +1,6 @@
+n_states: 4
+hmm_features:
+  - "realized_vol"
+  - "hurst_exponent"
+  - "trend_strength"
+  - "vpin"

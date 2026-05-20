@@ -72,11 +72,37 @@ class KalmanConfig(BaseModel):
     observation_noise: float = Field(default=1e-2)
 
 
+class COTConfig(BaseModel):
+    cot_window: int = Field(default=30)
+
+
+class SentimentConfig(BaseModel):
+    ema_span: int = Field(default=12)
+    volume_window: int = Field(default=20)
+
+
+class MacroConfig(BaseModel):
+    momentum_window: int = Field(default=20)
+    decay_factor: float = Field(default=0.95)
+
+
+class OptionsConfig(BaseModel):
+    rolling_window: int = Field(default=20)
+
+
+class AlternativeConfig(BaseModel):
+    cot: COTConfig = Field(default_factory=COTConfig)
+    sentiment: SentimentConfig = Field(default_factory=SentimentConfig)
+    macro: MacroConfig = Field(default_factory=MacroConfig)
+    options: OptionsConfig = Field(default_factory=OptionsConfig)
+
+
 class FeaturesConfig(BaseModel):
     resampling: ResamplingConfig = Field(default_factory=ResamplingConfig)
     microstructure: MicrostructureConfig = Field(default_factory=MicrostructureConfig)
     wavelet: WaveletConfig = Field(default_factory=WaveletConfig)
     kalman: KalmanConfig = Field(default_factory=KalmanConfig)
+    alternative: AlternativeConfig = Field(default_factory=AlternativeConfig)
 
 
 class TemporalModelConfig(BaseModel):
@@ -149,12 +175,21 @@ class LimitsConfig(BaseModel):
     max_correlation_exposure: float = Field(default=0.70)
 
 
+class MonitoringConfig(BaseModel):
+    max_drawdown: float = Field(default=0.10)
+    max_leverage: float = Field(default=10.0)
+    max_concentration: float = Field(default=0.30)
+    var_confidence: float = Field(default=0.95)
+    alert_cooldown_seconds: float = Field(default=300.0)
+
+
 class RiskConfig(BaseModel):
     sizing: SizingConfig = Field(default_factory=SizingConfig)
     circuit_breakers: CircuitBreakersConfig = Field(
         default_factory=CircuitBreakersConfig
     )
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
+    monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
 
 
 class SlippageConfig(BaseModel):
@@ -168,10 +203,36 @@ class SmartRoutingConfig(BaseModel):
     vwap_volume_participation_rate: float = Field(default=0.10)
 
 
+class OandaConfig(BaseModel):
+    access_token: str = Field(default="")
+    account_id: str = Field(default="")
+    domain: str = Field(default="api-fxpractice.oanda.com")
+
+
+class LMAXConfig(BaseModel):
+    host: str = Field(default="127.0.0.1")
+    port: int = Field(default=4001)
+    sender_comp_id: str = Field(default="CLIENT_SENDER")
+    target_comp_id: str = Field(default="LMAX_TARGET")
+    username: str = Field(default="lmax_user")
+    password: str = Field(default="lmax_pass")
+    initial_capital: float = Field(default=100000.0)
+
+
+class IBConfig(BaseModel):
+    host: str = Field(default="127.0.0.1")
+    port: int = Field(default=7497)
+    client_id: int = Field(default=1)
+    initial_capital: float = Field(default=100000.0)
+
+
 class ExecutionConfig(BaseModel):
     broker: Literal["paper", "oanda", "lmax", "ib"] = Field(default="paper")
     slippage: SlippageConfig = Field(default_factory=SlippageConfig)
     smart_routing: SmartRoutingConfig = Field(default_factory=SmartRoutingConfig)
+    oanda: OandaConfig = Field(default_factory=OandaConfig)
+    lmax: LMAXConfig = Field(default_factory=LMAXConfig)
+    ib: IBConfig = Field(default_factory=IBConfig)
 
 
 class AppConfig(BaseModel):
@@ -188,12 +249,107 @@ class AppConfig(BaseModel):
 def load_config(config_path: str) -> AppConfig:
     """
     Loads, merges, and validates configuration from a YAML file and overrides using Environment Variables.
+    Also merges modular configuration files from models/, risk/, and brokers/ subdirectories if present.
     """
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
 
     with open(config_path, "r") as f:
         data = yaml.safe_load(f) or {}
+
+    config_dir = os.path.dirname(config_path)
+
+    # 1. Merge modular model configs: configs/models/*.yaml -> models.*
+    models_dir = os.path.join(config_dir, "models")
+    if os.path.isdir(models_dir):
+        if "models" not in data:
+            data["models"] = {}
+        
+        # Mapping from file name to models config sub-key
+        model_file_mappings = {
+            "temporal_model.yaml": "temporal",
+            "regime_model.yaml": "regime",
+            "rl_agent.yaml": "rl_agent",
+            "meta_learner.yaml": "meta_learner",
+            "ensemble.yaml": "ensemble"
+        }
+        for filename, subkey in model_file_mappings.items():
+            filepath = os.path.join(models_dir, filename)
+            if os.path.isfile(filepath):
+                with open(filepath, "r") as f:
+                    model_data = yaml.safe_load(f) or {}
+                if model_data:
+                    if subkey not in data["models"]:
+                        data["models"][subkey] = {}
+                    data["models"][subkey].update(model_data)
+
+    # 2. Merge modular risk configs: configs/risk/*.yaml -> risk.*
+    risk_dir = os.path.join(config_dir, "risk")
+    if os.path.isdir(risk_dir):
+        if "risk" not in data:
+            data["risk"] = {}
+        
+        # position_sizing.yaml -> risk.sizing
+        sizing_path = os.path.join(risk_dir, "position_sizing.yaml")
+        if os.path.isfile(sizing_path):
+            with open(sizing_path, "r") as f:
+                sizing_data = yaml.safe_load(f) or {}
+            if sizing_data:
+                if "sizing" not in data["risk"]:
+                    data["risk"]["sizing"] = {}
+                data["risk"]["sizing"].update(sizing_data)
+
+        # risk_limits.yaml -> risk.limits and risk.circuit_breakers
+        limits_path = os.path.join(risk_dir, "risk_limits.yaml")
+        if os.path.isfile(limits_path):
+            with open(limits_path, "r") as f:
+                limits_data = yaml.safe_load(f) or {}
+            if limits_data:
+                cb_keys = {"daily_drawdown_limit", "weekly_drawdown_limit", "monthly_drawdown_limit"}
+                mon_keys = {"max_drawdown", "max_leverage", "max_concentration", "var_confidence", "alert_cooldown_seconds"}
+                
+                has_nested = any(k in limits_data for k in ["limits", "circuit_breakers", "monitoring"])
+                if has_nested:
+                    for k in ["limits", "circuit_breakers", "monitoring"]:
+                        if k in limits_data and isinstance(limits_data[k], dict):
+                            if k not in data["risk"]:
+                                data["risk"][k] = {}
+                            data["risk"][k].update(limits_data[k])
+                else:
+                    for k, v in limits_data.items():
+                        if k in cb_keys:
+                            if "circuit_breakers" not in data["risk"]:
+                                data["risk"]["circuit_breakers"] = {}
+                            data["risk"]["circuit_breakers"][k] = v
+                        elif k in mon_keys:
+                            if "monitoring" not in data["risk"]:
+                                data["risk"]["monitoring"] = {}
+                            data["risk"]["monitoring"][k] = v
+                        else:
+                            if "limits" not in data["risk"]:
+                                data["risk"]["limits"] = {}
+                            data["risk"]["limits"][k] = v
+
+    # 3. Merge modular broker configs: configs/brokers/*.yaml -> execution.*
+    brokers_dir = os.path.join(config_dir, "brokers")
+    if os.path.isdir(brokers_dir):
+        if "execution" not in data:
+            data["execution"] = {}
+        
+        broker_file_mappings = {
+            "oanda.yaml": "oanda",
+            "lmax.yaml": "lmax",
+            "interactive_brokers.yaml": "ib"
+        }
+        for filename, subkey in broker_file_mappings.items():
+            filepath = os.path.join(brokers_dir, filename)
+            if os.path.isfile(filepath):
+                with open(filepath, "r") as f:
+                    broker_data = yaml.safe_load(f) or {}
+                if broker_data:
+                    if subkey not in data["execution"]:
+                        data["execution"][subkey] = {}
+                    data["execution"][subkey].update(broker_data)
 
     # Extract nested fields and load flattened representations for Kafka topics
     if "kafka" in data and "topics" in data["kafka"]:

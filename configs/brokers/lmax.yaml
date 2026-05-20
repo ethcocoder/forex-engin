@@ -1,0 +1,7 @@
+host: "127.0.0.1"
+port: 4001
+sender_comp_id: "CLIENT_SENDER"
+target_comp_id: "LMAX_TARGET"
+username: "lmax_user"
+password: "lmax_pass"
+initial_capital: 100000.0

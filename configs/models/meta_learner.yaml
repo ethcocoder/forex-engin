@@ -1,0 +1,4 @@
+adaptation_steps: 5
+support_set_size: 50
+inner_lr: 0.01
+outer_lr: 0.0001

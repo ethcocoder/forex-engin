@@ -1,0 +1,16 @@
+limits:
+  cvar_confidence: 0.95
+  max_open_positions: 5
+  max_correlation_exposure: 0.70
+
+circuit_breakers:
+  daily_drawdown_limit: 0.03
+  weekly_drawdown_limit: 0.06
+  monthly_drawdown_limit: 0.10
+
+monitoring:
+  max_drawdown: 0.10
+  max_leverage: 10.0
+  max_concentration: 0.30
+  var_confidence: 0.95
+  alert_cooldown_seconds: 300.0
