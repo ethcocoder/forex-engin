@@ -139,12 +139,13 @@ class MAMLModel(BaseModel):
         optimizer = optim.SGD(clone.parameters(), lr=self.inner_lr)
         clone.train()
         
-        for _ in range(self.num_inner_steps):
-            optimizer.zero_grad()
-            preds = clone(support_X)
-            loss = nn.MSELoss()(preds, support_y)
-            loss.backward()
-            optimizer.step()
+        with torch.enable_grad():
+            for _ in range(self.num_inner_steps):
+                optimizer.zero_grad()
+                preds = clone(support_X)
+                loss = nn.MSELoss()(preds, support_y)
+                loss.backward()
+                optimizer.step()
             
         return clone
 
