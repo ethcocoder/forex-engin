@@ -157,6 +157,53 @@ class TestForexFeaturePipeline(unittest.TestCase):
                 err_msg=f"Incremental mismatch on feature: {col}"
             )
 
+    def test_cot_positioning(self) -> None:
+        """
+        Verify COT speculative positioning features.
+        """
+        from features.alternative.cot_positioning import COTPositioning
+        extractor = COTPositioning()
+        result = extractor.compute(self.df)
+        self.assertIn("cot_net_spec", result.columns)
+        self.assertIn("cot_spec_ratio", result.columns)
+        self.assertIn("cot_index", result.columns)
+        self.assertTrue(((result["cot_spec_ratio"] >= 0.0) & (result["cot_spec_ratio"] <= 1.0)).all())
+
+    def test_macro_surprise(self) -> None:
+        """
+        Verify macroeconomic surprise signals and momentum.
+        """
+        from features.alternative.macro_surprise import MacroSurprise
+        extractor = MacroSurprise()
+        result = extractor.compute(self.df)
+        self.assertIn("macro_surprise", result.columns)
+        self.assertIn("macro_momentum", result.columns)
+        self.assertIn("macro_decay_index", result.columns)
+
+    def test_options_flow(self) -> None:
+        """
+        Verify options flow, IV skew, and gamma exposure features.
+        """
+        from features.alternative.options_flow import OptionsFlow
+        extractor = OptionsFlow()
+        result = extractor.compute(self.df)
+        self.assertIn("options_put_call_ratio", result.columns)
+        self.assertIn("options_implied_vol", result.columns)
+        self.assertIn("options_skew", result.columns)
+        self.assertIn("options_gamma_exposure", result.columns)
+
+    def test_sentiment_features(self) -> None:
+        """
+        Verify news sentiment polarity, volume momentum and impact features.
+        """
+        from features.alternative.sentiment import SentimentFeatures
+        extractor = SentimentFeatures()
+        result = extractor.compute(self.df)
+        self.assertIn("sentiment_score_ema", result.columns)
+        self.assertIn("sentiment_volume_momentum", result.columns)
+        self.assertIn("sentiment_impact", result.columns)
+        self.assertIn("sentiment_divergence", result.columns)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -16,6 +16,10 @@ from features.technical.trend import TrendFeatures
 from features.technical.volume import VolumeFeatures
 from features.wavelet.decomposition import WaveletDecomposition
 from features.wavelet.kalman_filter import KalmanStateFilter
+from features.alternative.cot_positioning import COTPositioning
+from features.alternative.macro_surprise import MacroSurprise
+from features.alternative.options_flow import OptionsFlow
+from features.alternative.sentiment import SentimentFeatures
 
 logger = structlog.get_logger()
 
@@ -46,6 +50,10 @@ class FeaturePipeline:
             "volume": VolumeFeatures(config=config),
             "wavelet": WaveletDecomposition(config=config),
             "kalman": KalmanStateFilter(config=config),
+            "cot": COTPositioning(config=config),
+            "macro": MacroSurprise(config=config),
+            "options": OptionsFlow(config=config),
+            "sentiment": SentimentFeatures(config=config),
         }
         
         # We need a minimum lookback of 256 for wavelet decomposition
