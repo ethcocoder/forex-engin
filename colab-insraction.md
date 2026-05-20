@@ -96,6 +96,17 @@ By default, this will look at the past 60 hours of features (`--seq_len 60`) to 
 # !python scripts/train_temporal.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv --cv
 ```
 
+### Step 5C: Train the Market Regime Classification Ensemble
+Next, train the unsupervised market regime ensemble (Gaussian HMM + LSTM Sequence Classifier). This maps volatile/quiet market states to pseudo-labels and trains the LSTM to predict them.
+
+```python
+# Train the Regime Model Ensemble
+!python scripts/train_regime.py --features data/EUR_USD_features.csv --epochs 10
+
+# (Optional) Run walk-forward cross-validation to assess LSTM-HMM alignment consistency
+# !python scripts/train_regime.py --features data/EUR_USD_features.csv --epochs 10 --cv
+```
+
 *(Note: Training scripts for the RL Agent and Meta-Learner are currently being written and will be added here shortly!)*
 
 ---
@@ -107,9 +118,13 @@ Once training finishes, Colab will reset when you close the browser. Ensure you 
 ```python
 from google.colab import files
 
-# Example of downloading the saved Temporal Model weights
-files.download("saved_models/temporal_model_v1.pt")
-files.download("saved_models/rl_agent_ppo.zip")
+# Example of downloading the saved weights and scalers
+files.download("saved_models/temporal_model.pt")
+files.download("saved_models/feature_scaler.pkl")
+files.download("saved_models/regime_ensemble.pkl")
+files.download("saved_models/regime_ensemble.pkl.hmm")
+files.download("saved_models/regime_ensemble.pkl.lstm")
+files.download("saved_models/regime_feature_scaler.pkl")
 ```
 
 Alternatively, you can mount your Google Drive to save weights automatically:

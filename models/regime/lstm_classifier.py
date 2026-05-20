@@ -3,8 +3,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import structlog
 from typing import Any, Optional, Dict
 
+logger = structlog.get_logger()
 from models.base_model import BaseModel
 
 
@@ -114,6 +116,9 @@ class LSTMRegimeClassifier(BaseModel):
                 
                 epoch_loss += loss.item() * len(batch_x)
                 
+            epoch_loss /= n_samples
+            logger.info(f"Regime LSTM - Epoch {epoch + 1}/{self.epochs} completed", loss=float(epoch_loss))
+            
         return self
 
     def predict(self, X: Any, **kwargs: Any) -> np.ndarray:

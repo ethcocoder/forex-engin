@@ -65,7 +65,7 @@ models:
     dropout: 0.1
   regime:
     n_states: 4
-    hmm_features: ["realized_vol", "hurst_exponent", "trend_strength", "vpin"]
+    hmm_features: ["volatility_cc", "mean_reversion_hurst", "trend_strength", "vpin"]
   rl_agent:
     algorithm: "PPO"
     learning_rate: 3e-4
