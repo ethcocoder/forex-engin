@@ -3,7 +3,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import structlog
 from typing import Any, Optional, Dict, List
+
+logger = structlog.get_logger()
 from models.base_model import BaseModel
 from models.temporal.transformer import PositionalEncoding
 from models.temporal.tcn import TCNResidualBlock
