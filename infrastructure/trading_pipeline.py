@@ -1,0 +1,114 @@
+import time
+import json
+from typing import Any, Dict, Optional
+import numpy as np
+import structlog
+from datetime import datetime
+
+from risk.risk_engine import RiskEngine, PortfolioState
+from execution.execution_engine import ExecutionEngine
+from models.ensemble.aggregator import EnsembleAggregator
+from models.ensemble.signal_generator import AlphaSignal
+
+logger = structlog.get_logger()
+
+
+class TradingPipeline:
+    """
+    The Master Orchestrator (Layer 1-5 Bridge).
+    Connects Data -> Models -> Risk -> Execution into a unified event loop.
+    """
+
+    def __init__(
+        self,
+        ensemble: EnsembleAggregator,
+        risk_engine: RiskEngine,
+        execution_engine: ExecutionEngine,
+        initial_capital: float = 100000.0
+    ) -> None:
+        self.ensemble = ensemble
+        self.risk_engine = risk_engine
+        self.execution_engine = execution_engine
+        
+        # Internal state
+        self.portfolio_state = PortfolioState(
+            current_equity=initial_capital,
+            open_positions={},
+            daily_pnl=0.0,
+            weekly_pnl=0.0,
+            monthly_pnl=0.0,
+            win_rate=0.5, # Assume neutral start
+            win_loss_ratio=1.0,
+            historical_returns=np.zeros(200) # Pre-fill for CVaR
+        )
+        
+        self.last_checkpoint_time = time.time()
+        
+        logger.info("TradingPipeline initialized", initial_capital=initial_capital)
+
+    def process_tick(self, pair: str, features: np.ndarray, market_data: Dict[str, Any]) -> None:
+        """
+        Process a single tick or bar through the entire pipeline.
+        
+        Args:
+            pair: "EURUSD"
+            features: Real-time generated feature vector.
+            market_data: Dictionary containing spread, volatility, mid_price.
+        """
+        logger.debug("Processing tick", pair=pair)
+        
+        # 1. Ask Ensemble for AlphaSignal
+        # We assume the features vector is properly formatted for the ensemble
+        signal: AlphaSignal = self.ensemble.predict(features, return_signal=True)
+        
+        if signal.direction == 0:
+            return  # No action required
+            
+        # 2. Sync Portfolio State with broker before risking capital
+        # In a high frequency setup, we might only do this periodically.
+        # For safety, we do it now.
+        actual_positions = self.execution_engine.sync_portfolio_state()
+        self.portfolio_state.open_positions = actual_positions
+            
+        # 3. Gate the signal through the Risk Engine
+        order = self.risk_engine.gate(signal, pair, self.portfolio_state, market_data)
+        
+        # 4. Execute if approved
+        if order is not None:
+            success = self.execution_engine.execute(order)
+            if success:
+                logger.info("Pipeline executed trade successfully", pair=pair, direction=order.direction)
+            else:
+                logger.warning("Execution engine failed to execute order", pair=pair)
+                
+        # 5. Periodic Checkpointing
+        self._maybe_checkpoint()
+
+    def update_pnl(self, realized_pnl: float, return_pct: float) -> None:
+        """
+        Update the portfolio metrics based on a closed trade.
+        """
+        self.portfolio_state.current_equity += realized_pnl
+        self.portfolio_state.daily_pnl += realized_pnl
+        self.portfolio_state.weekly_pnl += realized_pnl
+        self.portfolio_state.monthly_pnl += realized_pnl
+        
+        # Shift historical returns
+        self.portfolio_state.historical_returns = np.roll(self.portfolio_state.historical_returns, -1)
+        self.portfolio_state.historical_returns[-1] = return_pct
+
+    def _maybe_checkpoint(self) -> None:
+        """Save state every 5 minutes (simulated or real time)."""
+        now = time.time()
+        if now - self.last_checkpoint_time > 300:
+            self._save_state()
+            self.last_checkpoint_time = now
+
+    def _save_state(self) -> None:
+        state_dict = {
+            "equity": self.portfolio_state.current_equity,
+            "daily_pnl": self.portfolio_state.daily_pnl,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        # In a real system, write to Redis or state.json safely
+        logger.debug("Checkpoint saved", state=state_dict)

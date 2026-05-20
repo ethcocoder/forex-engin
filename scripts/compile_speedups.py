@@ -80,7 +80,8 @@ def compile_all() -> bool:
     """
     targets = [
         ("features/wavelet/kalman_speedups.cpp", "kalman_speedups"),
-        ("models/rl_agent/rl_speedups.cpp", "rl_speedups")
+        ("models/rl_agent/rl_speedups.cpp", "rl_speedups"),
+        ("models/meta_learner/maml_speedups.cpp", "maml_speedups")
     ]
     
     all_success = True
