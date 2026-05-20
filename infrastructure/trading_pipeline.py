@@ -57,18 +57,16 @@ class TradingPipeline:
         """
         logger.debug("Processing tick", pair=pair)
         
-        # 1. Ask Ensemble for AlphaSignal
+        # 1. Sync Portfolio State with broker before anything else to ensure fresh state
+        actual_positions = self.execution_engine.sync_portfolio_state()
+        self.portfolio_state.open_positions = actual_positions
+
+        # 2. Ask Ensemble for AlphaSignal
         # We assume the features vector is properly formatted for the ensemble
         signal: AlphaSignal = self.ensemble.predict(features, return_signal=True)
         
         if signal.direction == 0:
             return  # No action required
-            
-        # 2. Sync Portfolio State with broker before risking capital
-        # In a high frequency setup, we might only do this periodically.
-        # For safety, we do it now.
-        actual_positions = self.execution_engine.sync_portfolio_state()
-        self.portfolio_state.open_positions = actual_positions
             
         # 3. Gate the signal through the Risk Engine
         order = self.risk_engine.gate(signal, pair, self.portfolio_state, market_data)

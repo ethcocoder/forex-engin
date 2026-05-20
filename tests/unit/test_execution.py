@@ -111,3 +111,116 @@ def test_execution_engine_retry():
     
     assert result is True
     assert mock_broker.place_order.call_count == 3
+
+
+def test_order_fill_simulator():
+    from execution.simulation.fill_simulator import OrderFillSimulator
+    from execution.simulation.slippage_model import SlippageModel
+    from execution.simulation.market_impact import MarketImpactModel
+    
+    slippage = SlippageModel(volatility_scalar=0.0, noise_std=0.0)
+    impact = MarketImpactModel(impact_scalar=0.0)
+    sim = OrderFillSimulator(slippage_model=slippage, impact_model=impact)
+    
+    # 1. Market order
+    order_mkt = OrderRequest(pair="EURUSD", direction=1, size=10000.0, order_type="MARKET")
+    market_data = {"mid_price": 1.1000, "spread_pips": 2.0, "pip_value": 0.0001, "volatility": 1.0, "adv": 1000000.0}
+    
+    res = sim.simulate_fill(order_mkt, market_data)
+    assert res["status"] == "FILLED"
+    # Buy at Ask: mid + (spread_pips / 2) * pip_value -> 1.1000 + 1.0 * 0.0001 = 1.1001
+    assert pytest.approx(res["fill_price"], 0.00001) == 1.1001
+
+    # 2. Limit order (Buy Limit)
+    order_limit = OrderRequest(pair="EURUSD", direction=1, size=10000.0, order_type="LIMIT", limit_price=1.0950)
+    # Low is 1.0960 (above limit) -> Unfilled
+    res = sim.simulate_fill(order_limit, {"mid_price": 1.1000, "low": 1.0960})
+    assert res["status"] == "UNFILLED"
+    
+    # Low is 1.0940 (below limit) -> Filled
+    res = sim.simulate_fill(order_limit, {"mid_price": 1.1000, "low": 1.0940})
+    assert res["status"] == "FILLED"
+    assert res["fill_price"] == 1.0950
+
+    # 3. Stop order (Buy Stop)
+    order_stop = OrderRequest(pair="EURUSD", direction=1, size=10000.0, order_type="STOP", limit_price=1.1050)
+    # High is 1.1040 (below stop) -> Unfilled
+    res = sim.simulate_fill(order_stop, {"mid_price": 1.1000, "high": 1.1040})
+    assert res["status"] == "UNFILLED"
+    
+    # High is 1.1060 (above stop) -> Triggered and filled
+    res = sim.simulate_fill(order_stop, {"mid_price": 1.1000, "high": 1.1060, "spread_pips": 2.0, "pip_value": 0.0001})
+    assert res["status"] == "FILLED"
+    assert pytest.approx(res["fill_price"], 0.00001) == 1.1001
+
+
+def test_iceberg_router():
+    from execution.routing.iceberg import IcebergRouter
+    
+    router = IcebergRouter(display_size=10000.0, poll_interval=0.01, timeout=5.0)
+    order = OrderRequest(pair="EURUSD", direction=1, size=30000.0, order_type="MARKET")
+    
+    mock_broker = MagicMock()
+    mock_broker.place_order.return_value = {"status": "FILLED"}
+    mock_broker.get_positions.return_value = {}
+    
+    assert router.route(order, mock_broker) is True
+    time.sleep(0.2)
+    
+    # Should execute 3 slices of 10k
+    assert mock_broker.place_order.call_count == 3
+    first_call_order = mock_broker.place_order.call_args_list[0][0][0]
+    assert first_call_order.size == 10000.0
+
+
+def test_vwap_router():
+    from execution.routing.vwap import VWAPRouter
+    
+    # Slices = 3, duration = 300, randomize = False to keep it deterministic
+    router = VWAPRouter(slices=3, duration_seconds=300, randomize=False)
+    order = OrderRequest(pair="EURUSD", direction=1, size=30000.0, order_type="MARKET")
+    
+    mock_broker = MagicMock()
+    mock_broker.place_order.return_value = {"status": "FILLED"}
+    
+    with unittest.mock.patch('execution.routing.vwap.time.sleep', return_value=None):
+        assert router.route(order, mock_broker) is True
+        time.sleep(0.1)
+    
+    # Check that it slices the order and calls broker
+    assert mock_broker.place_order.call_count == 3
+
+
+def test_ib_broker_simulation():
+    from execution.brokers.ib_broker import IBBroker
+    
+    broker = IBBroker(config={"initial_capital": 100000.0})
+    # Connect should succeed in simulation mode automatically
+    assert broker.connect() is True
+    assert broker.simulated is True
+    
+    order = OrderRequest(pair="EURUSD", direction=1, size=10000.0, order_type="MARKET")
+    res = broker.place_order(order)
+    
+    assert res["status"] == "FILLED"
+    assert broker.get_positions()["EURUSD"] == 10000.0
+    assert broker.get_account_balance() == 100000.0
+    
+    broker.disconnect()
+
+
+def test_lmax_broker_simulation():
+    from execution.brokers.lmax_broker import LMAXBroker
+    
+    broker = LMAXBroker(config={"initial_capital": 150000.0})
+    assert broker.connect() is True
+    assert broker.simulated is True
+    
+    order = OrderRequest(pair="EURUSD", direction=-1, size=5000.0, order_type="MARKET")
+    res = broker.place_order(order)
+    
+    assert res["status"] == "FILLED"
+    assert broker.get_positions()["EURUSD"] == -5000.0
+    
+    broker.disconnect()
+
