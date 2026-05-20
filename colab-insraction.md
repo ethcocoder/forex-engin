@@ -74,33 +74,29 @@ To train the models on real market behavior without needing any API tokens, you 
 
 ## 5. Run the Training Pipeline
 
-Set environment variables to bypass Kafka and TimescaleDB for isolated model training, and execute the temporal, regime, and RL training scripts.
+The trading engine requires models to be trained sequentially since they rely on each other's outputs.
+
+### Step 5A: Generate Features
+Before training the Neural Engine, you must convert the raw tick data into mathematical features (e.g., wavelets, volatility estimators, microstructure spreads).
 
 ```python
-import os
-os.environ["FOREX_ENVIRONMENT"] = "development"
-os.environ["FOREX_EXECUTION_BROKER"] = "paper"
-
-# Example: Run the Backtesting or Training scripts
-# Since the orchestrator is highly modular, you can directly train specific models:
-!python -m pytest tests/unit/ -v  # Verify environment is sane first
+# Generate technical & microstructure features from the raw data
+!python scripts/generate_features.py --input data/EUR_USD_ticks.csv --output data/EUR_USD_features.csv
 ```
 
-### To Train the RL Agent (PPO/SAC)
-If you have a dedicated training script (e.g., `train_rl.py`), run it natively:
+### Step 5B: Train the Temporal Neural Network
+Once features are generated, you can feed them into the temporal neural network (TCN + Transformer). 
+By default, this will look at the past 60 hours of features (`--seq_len 60`) to predict the return of the next 1 hour (`--horizon 1`).
+
 ```python
-# Assuming you create a training entrypoint script
-!python scripts/train_rl.py --pair EUR_USD --episodes 1000
+# Train the Temporal Fusion Model
+!python scripts/train_temporal.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv --epochs 10 --batch_size 64
+
+# (Optional) Run walk-forward cross-validation first to verify out-of-sample performance
+# !python scripts/train_temporal.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv --cv
 ```
 
-### To Train the Neural Ensemble & Meta-Learner
-```python
-# Train the Temporal TCN/Transformer
-!python scripts/train_temporal.py --epochs 50 --batch_size 64
-
-# Train the MAML outer-loop
-!python scripts/train_maml.py --meta_epochs 100
-```
+*(Note: Training scripts for the RL Agent and Meta-Learner are currently being written and will be added here shortly!)*
 
 ---
 
