@@ -83,6 +83,7 @@ models:
     aggregation_method: "stacking" # stacking, bma
     mc_dropout_samples: 50
     stacking_meta_model: "lightgbm"
+    direction_threshold: 0.0001
 
 # Institutional-Grade Risk Gating
 risk:

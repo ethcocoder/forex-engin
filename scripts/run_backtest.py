@@ -376,6 +376,14 @@ def main():
     agg.register_model("regime", regime_wrapper, is_torch=False)
     agg.register_model("rl", rl_wrapper, is_torch=False)
     
+    # Allow overriding direction threshold from configuration
+    ensemble_cfg = config.get("models", {}).get("ensemble", {})
+    if "direction_threshold" in ensemble_cfg:
+        overridden_thresh = ensemble_cfg["direction_threshold"]
+        logger.info(f"Overriding loaded direction_threshold to {overridden_thresh} from config.yaml")
+        agg.direction_threshold = overridden_thresh
+        agg.signal_generator.direction_threshold = overridden_thresh
+    
     # -------------------------------------------------------------------------
     # Execute Backtests
     # -------------------------------------------------------------------------
