@@ -84,7 +84,7 @@ class EnsembleAggregator(BaseModel):
             is_torch: Whether this model wraps a PyTorch nn.Module (enables MC Dropout).
         """
         self.sub_models[name] = model
-        if is_torch:
+        if is_torch and name not in self._torch_models:
             self._torch_models.append(name)
 
         logger.info(
