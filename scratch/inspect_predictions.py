@@ -9,11 +9,11 @@ import torch
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from models.ensemble.aggregator import EnsembleAggregator
-from models.temporal.tf2 import TemporalFusionModel
-from models.meta.maml import MAMLModel
-from models.rl.ppo import PPOModel
-from models.ensemble.wrappers import TemporalEnsembleWrapper, MAMLEnsembleWrapper, RegimeEnsembleWrapper, RLEnsembleWrapper
-from models.regime.hmm import RegimeEnsembleEstimator
+from models.temporal.combined import TemporalFusionModel
+from models.meta_learner.maml import MAMLModel
+from models.rl_agent.ppo_agent import PPOModel
+from scripts.run_backtest import TemporalEnsembleWrapper, MAMLEnsembleWrapper, RegimeEnsembleWrapper, RLEnsembleWrapper
+from models.regime.combined import RegimeEnsembleEstimator
 
 def main():
     print("Loading data...")
