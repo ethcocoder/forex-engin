@@ -1,12 +1,28 @@
 import os
 import sys
 
-# Limit CPU threads to optimize loading and memory on 8GB RAM machines
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
+# 1. Parse threads count before imports to configure thread environments
+num_threads = None
+for i, arg in enumerate(sys.argv):
+    if arg.startswith("--threads="):
+        num_threads = arg.split("=")[1]
+    elif arg == "--threads" and i + 1 < len(sys.argv):
+        num_threads = sys.argv[i + 1]
+
+if num_threads is not None:
+    try:
+        threads_to_use = int(num_threads)
+    except ValueError:
+        threads_to_use = max(1, os.cpu_count() - 1) if os.cpu_count() else 4
+else:
+    # Use max cores - 1 by default to boost speed while keeping the OS responsive
+    threads_to_use = max(1, os.cpu_count() - 1) if os.cpu_count() else 4
+
+os.environ["OMP_NUM_THREADS"] = str(threads_to_use)
+os.environ["MKL_NUM_THREADS"] = str(threads_to_use)
+os.environ["OPENBLAS_NUM_THREADS"] = str(threads_to_use)
+os.environ["VECLIB_MAXIMUM_THREADS"] = str(threads_to_use)
+os.environ["NUMEXPR_NUM_THREADS"] = str(threads_to_use)
 
 import argparse
 import numpy as np
@@ -17,7 +33,7 @@ import torch
 import gc
 import joblib
 
-torch.set_num_threads(1)
+torch.set_num_threads(threads_to_use)
 torch.set_num_interop_threads(1)
 torch.set_grad_enabled(False)
 
@@ -182,6 +198,7 @@ def main():
     parser.add_argument("--horizon", type=int, default=1, help="Prediction horizon")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Device to run on")
     parser.add_argument("--output", type=str, default="saved_models/ensemble_aggregator", help="Base path for saved aggregator")
+    parser.add_argument("--threads", type=int, default=None, help="Number of CPU threads to use (default: max physical cores - 1)")
     
     args = parser.parse_args()
     
@@ -189,6 +206,7 @@ def main():
         logger.error("Features or raw data files not found. Ensure previous steps are run.")
         sys.exit(1)
         
+    logger.info("Initializing run context", threads_configured=threads_to_use)
     logger.info("Loading DataFrames...")
     features_df = pd.read_csv(args.features, index_col="timestamp", parse_dates=True)
     raw_df = pd.read_csv(args.raw, index_col="timestamp", parse_dates=True)

@@ -1,12 +1,28 @@
 import os
 import sys
 
-# Limit CPU threads for NumPy, PyTorch, etc., to optimize loading and execution on 8GB RAM
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
+# 1. Parse threads count before imports to configure thread environments
+num_threads = None
+for i, arg in enumerate(sys.argv):
+    if arg.startswith("--threads="):
+        num_threads = arg.split("=")[1]
+    elif arg == "--threads" and i + 1 < len(sys.argv):
+        num_threads = sys.argv[i + 1]
+
+if num_threads is not None:
+    try:
+        threads_to_use = int(num_threads)
+    except ValueError:
+        threads_to_use = max(1, os.cpu_count() - 1) if os.cpu_count() else 4
+else:
+    # Use max cores - 1 by default to boost speed while keeping the OS responsive
+    threads_to_use = max(1, os.cpu_count() - 1) if os.cpu_count() else 4
+
+os.environ["OMP_NUM_THREADS"] = str(threads_to_use)
+os.environ["MKL_NUM_THREADS"] = str(threads_to_use)
+os.environ["OPENBLAS_NUM_THREADS"] = str(threads_to_use)
+os.environ["VECLIB_MAXIMUM_THREADS"] = str(threads_to_use)
+os.environ["NUMEXPR_NUM_THREADS"] = str(threads_to_use)
 
 import time
 import pickle
@@ -15,7 +31,7 @@ import pandas as pd
 import torch
 import gc
 
-torch.set_num_threads(1)
+torch.set_num_threads(threads_to_use)
 torch.set_num_interop_threads(1)
 torch.set_grad_enabled(False)
 
@@ -148,6 +164,7 @@ class RealTimePipeline(TradingPipeline):
 
 
 def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="data/EUR_USD_ticks.csv"):
+    logger.info("Initializing run context", threads_configured=threads_to_use)
     logger.info("Starting High-Fidelity Real Paper Trading Simulator...")
     
     # 1. Load Data
@@ -355,4 +372,11 @@ def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="
 
 
 if __name__ == "__main__":
-    run_real_paper_trading()
+    import argparse
+    parser = argparse.ArgumentParser(description="Run High-Fidelity Paper Trading Simulator")
+    parser.add_argument("--features", type=str, default="data/EUR_USD_features.csv", help="Path to features CSV")
+    parser.add_argument("--raw", type=str, default="data/EUR_USD_ticks.csv", help="Path to raw ticks CSV")
+    parser.add_argument("--threads", type=int, default=None, help="Number of CPU threads to use (default: CPU cores - 1)")
+    args = parser.parse_args()
+    
+    run_real_paper_trading(features_path=args.features, raw_path=args.raw)
