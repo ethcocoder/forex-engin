@@ -42,6 +42,10 @@ class TradingPipeline:
             historical_returns=np.zeros(200) # Pre-fill for CVaR
         )
         
+        # Rolling trade statistics for live Kelly updates
+        self._trade_wins = []   # list of winning trade PnL amounts
+        self._trade_losses = [] # list of losing trade PnL amounts (stored as positive)
+        
         self.last_checkpoint_time = time.time()
         
         logger.info("TradingPipeline initialized", initial_capital=initial_capital)
@@ -85,6 +89,7 @@ class TradingPipeline:
     def update_pnl(self, realized_pnl: float, return_pct: float) -> None:
         """
         Update the portfolio metrics based on a closed trade.
+        Also recalculates live win_rate and win_loss_ratio for Kelly sizing.
         """
         self.portfolio_state.current_equity += realized_pnl
         self.portfolio_state.daily_pnl += realized_pnl
@@ -94,6 +99,20 @@ class TradingPipeline:
         # Shift historical returns
         self.portfolio_state.historical_returns = np.roll(self.portfolio_state.historical_returns, -1)
         self.portfolio_state.historical_returns[-1] = return_pct
+        
+        # Track wins and losses for live Kelly computation
+        if realized_pnl > 0:
+            self._trade_wins.append(realized_pnl)
+        elif realized_pnl < 0:
+            self._trade_losses.append(abs(realized_pnl))
+        
+        # Update live statistics (require at least 5 trades before updating)
+        total_trades = len(self._trade_wins) + len(self._trade_losses)
+        if total_trades >= 5:
+            self.portfolio_state.win_rate = len(self._trade_wins) / total_trades
+            avg_win = np.mean(self._trade_wins) if self._trade_wins else 1.0
+            avg_loss = np.mean(self._trade_losses) if self._trade_losses else 1.0
+            self.portfolio_state.win_loss_ratio = avg_win / max(avg_loss, 1e-8)
 
     def _maybe_checkpoint(self) -> None:
         """Save state every 5 minutes (simulated or real time)."""

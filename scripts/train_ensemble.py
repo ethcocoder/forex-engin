@@ -170,12 +170,14 @@ class RLEnsembleWrapper:
         obs = np.hstack([feats, pos, unrealized, time_ind, regimes])
         obs = np.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
         
-        # SB3 predict supports batched observations natively
-        actions, _ = self.ppo_model.model.predict(obs, deterministic=True)
-        
-        # Map actions to continuous values: 0 -> 0.0, 1 -> 0.5, 2 -> 1.0, 3 -> -0.5, 4 -> -1.0
-        action_mapping = {0: 0.0, 1: 0.5, 2: 1.0, 3: -0.5, 4: -1.0}
-        pred = np.array([action_mapping[int(a)] for a in actions], dtype=np.float64)
+        import torch
+        obs_tensor = torch.as_tensor(obs, device=self.ppo_model.model.device)
+        with torch.no_grad():
+            distribution = self.ppo_model.model.policy.get_distribution(obs_tensor)
+            action_probs = distribution.distribution.probs.cpu().numpy()
+            
+        action_values = np.array([0.0, 0.5, 1.0, -0.5, -1.0], dtype=np.float64)
+        pred = np.sum(action_probs * action_values, axis=1)
         return pred
 
 

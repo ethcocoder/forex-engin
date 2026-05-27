@@ -499,18 +499,29 @@ class EnsembleAggregator(BaseModel):
             else:
                 sub_model_preds[name] = float(np.mean(pred_arr))
 
-        # STEP 3: Compute ensemble disagreement metric.
-        # High disagreement = models fighting each other = signal unreliable.
+        # STEP 3: Compute ensemble DIRECTIONAL disagreement metric.
+        # Measures fraction of models that disagree with the majority direction.
+        # This captures conflict between e.g. temporal(+) vs maml(-) vs rl(-)
+        # even when prediction magnitudes (and thus variance) are small.
         scalar_preds = [
             float(np.mean(predictions[n]))
             for n in predictions
             if predictions[n].ndim == 1
         ]
-        disagreement = float(np.var(scalar_preds)) if len(scalar_preds) >= 2 else 0.0
+        if len(scalar_preds) >= 2:
+            signs = [1 if p > 0 else -1 for p in scalar_preds]
+            n_positive = sum(1 for s in signs if s > 0)
+            n_negative = len(signs) - n_positive
+            # Disagreement = fraction of models in the minority
+            minority_count = min(n_positive, n_negative)
+            disagreement = minority_count / len(signs)
+        else:
+            disagreement = 0.0
 
-        # Apply prediction separation scaling and disagreement penalty
-        disagreement_factor = float(np.clip(1.0 - disagreement, 0.0, 1.0))
-        pred_val = pred_val * disagreement_factor * 10.0
+        # Apply prediction separation scaling and exponential disagreement penalty
+        # f_adj = f * exp(-lambda * D), lambda=3.0 gives strong filtering
+        disagreement_penalty = float(np.exp(-3.0 * disagreement))
+        pred_val = pred_val * disagreement_penalty * 10.0
 
         logger.debug(
             "Ensemble inference completed",

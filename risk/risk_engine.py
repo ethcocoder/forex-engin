@@ -142,11 +142,27 @@ class RiskEngine(BaseRiskEngine):
             logger.debug("Signal rejected: Calculated size is 0 or negative")
             return None
 
+        # 5. Net Exposure Cap — prevent position overaccumulation
+        # The proposed_size represents the TARGET total exposure, not an additive increment.
+        # Only trade the difference between current exposure and target.
+        current_exposure = portfolio_state.open_positions.get(pair, 0.0)
+        if signal.direction > 0:
+            # Want net long of proposed_size; if already long, only add the gap
+            trade_size = max(0.0, proposed_size - max(current_exposure, 0.0))
+        else:
+            # Want net short of proposed_size; if already short, only add the gap
+            trade_size = max(0.0, proposed_size - abs(min(current_exposure, 0.0)))
+
+        if trade_size < 1.0:
+            logger.debug("Signal rejected: Net exposure already at or above target",
+                         proposed_size=proposed_size, current_exposure=current_exposure)
+            return None
+
         # Create the final approved order
         order = OrderRequest(
             pair=pair,
             direction=signal.direction,
-            size=proposed_size,
+            size=trade_size,
             order_type="MARKET",
             metadata={"source": "EnsembleAggregator", "signal_confidence": signal.confidence}
         )
