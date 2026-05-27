@@ -26,13 +26,13 @@ To verify the GPU is active, run the following command in the first cell:
 
 ## 2. Clone the Repository
 
-Clone your repository into the Colab environment. Run this in a new cell:
+Clone your repository into the Colab environment and checkout the target branch. Run this in a new cell:
 
 ```python
 import os
 
-# Clone the repository
-!git clone https://github.com/ethcocoder/forex-engin.git
+# Clone the repository branch
+!git clone -b code-analysis-review-89c0e-2854086098776759399 https://github.com/ethcocoder/forex-engin.git
 %cd forex-engin
 ```
 
