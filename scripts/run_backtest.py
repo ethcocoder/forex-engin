@@ -185,18 +185,32 @@ class CustomVectorizedEngine(VectorizedBacktestEngine):
             mkt_ret_mean=float(df_sub["market_returns"].mean()) if df_sub["market_returns"].notna().any() else 0.0
         )
         
-        # Signal direction mapping: Long (+1) if prediction > threshold, Short (-1) if prediction < -threshold, else Flat (0)
-        threshold = self.strategy.direction_threshold
+        # Dynamic volatility-adaptive thresholding
+        base_threshold = self.strategy.direction_threshold
+        k = base_threshold / 0.0005  # sensitivity coefficient
         
-        logger.info("DIAG: threshold", threshold=threshold)
+        # Compute rolling volatility from close prices (20-bar std of log returns)
+        log_rets = np.log(df["close"]).diff()
+        rolling_vol = log_rets.rolling(window=20).std().fillna(0.0005).values
+        # Align with df_sub
+        rolling_vol_sub = rolling_vol[self.seq_len - 1 : self.seq_len - 1 + n_samples]
         
         # Ensure predictions and df_sub are aligned in length
         actual_len = min(len(predictions), len(df_sub))
         predictions = predictions[:actual_len]
         df_sub = df_sub.iloc[:actual_len].copy()
         df_sub["market_returns"] = df_sub["close"].pct_change()
+        rolling_vol_sub = rolling_vol_sub[:actual_len]
         
-        df_sub["signal"] = np.where(predictions > threshold, 1, np.where(predictions < -threshold, -1, 0))
+        # Dynamic threshold per bar, clamped to sane limits
+        dynamic_threshold = np.clip(k * rolling_vol_sub, 0.0001, 0.005)
+        
+        logger.info("DIAG: dynamic threshold", 
+                     base=base_threshold, k=k,
+                     mean_vol=float(np.mean(rolling_vol_sub)),
+                     mean_threshold=float(np.mean(dynamic_threshold)))
+        
+        df_sub["signal"] = np.where(predictions > dynamic_threshold, 1, np.where(predictions < -dynamic_threshold, -1, 0))
         
         n_long = int((df_sub["signal"] == 1).sum())
         n_short = int((df_sub["signal"] == -1).sum())
@@ -280,6 +294,15 @@ class CustomEventDrivenEngine(EventDrivenBacktestEngine):
             entry = self.portfolio.avg_entry.get(pair, bar["close"])
             unrealized = current_pos * (bar["close"] - entry)
             
+        # Compute rolling volatility from recent closes (20-bar window)
+        df = self.data_handler.data.get(pair)
+        if df is not None and self.current_bar_index >= 20:
+            recent_closes = df["close"].values[self.current_bar_index - 19 : self.current_bar_index + 1]
+            log_rets = np.diff(np.log(recent_closes))
+            rolling_vol = float(np.std(log_rets))
+        else:
+            rolling_vol = 0.0005
+
         # Predict AlphaSignal
         signal = self.strategy.predict(
             X_input,
@@ -287,7 +310,8 @@ class CustomEventDrivenEngine(EventDrivenBacktestEngine):
             current_position=current_pos,
             unrealized_pnl=unrealized,
             time_indicator=hour_ind,
-            sample_idx=self.current_bar_index - self.seq_len + 1
+            sample_idx=self.current_bar_index - self.seq_len + 1,
+            volatility=rolling_vol
         )
         
         if signal.direction != 0:

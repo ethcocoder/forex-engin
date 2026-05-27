@@ -37,15 +37,16 @@ class FixedFractionalSizer:
         """
         base_size = portfolio_state.current_equity * self.fraction
         
-        # Scale down by the signal's magnitude [0.0, 1.0]
-        final_size = base_size * signal.magnitude
+        # Scale by signal magnitude, confidence, and inverse uncertainty
+        signal_scalar = signal.magnitude * signal.confidence * (1.0 - signal.uncertainty)
+        final_size = base_size * signal_scalar
         
         logger.debug(
             "Fixed fractional size calculated",
             pair=pair,
             equity=portfolio_state.current_equity,
             base_size=base_size,
-            magnitude=signal.magnitude,
+            signal_scalar=signal_scalar,
             final_size=final_size
         )
         

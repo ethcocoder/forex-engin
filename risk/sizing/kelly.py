@@ -66,14 +66,15 @@ class KellySizer:
             logger.debug("Negative or zero Kelly fraction, falling back to minimum risk fraction", kelly_f=kelly_f)
             kelly_f = 0.08  # safe minimum raw Kelly fraction (e.g., 2% risk with 0.25 multiplier)
             
+
+        
         # Apply fractional multiplier
         fractional_kelly = kelly_f * self.fraction
         
-        # Scale by signal magnitude and confidence
-        # Higher uncertainty reduces size, higher magnitude increases it
-        signal_scalar = signal.magnitude * (1.0 - signal.uncertainty)
+        # Scale by signal magnitude, confidence, and inverse uncertainty
+        signal_scalar = signal.magnitude * signal.confidence * (1.0 - signal.uncertainty)
         adjusted_f = fractional_kelly * signal_scalar
-        
+
         # Cap at maximum allowed risk per trade
         final_f = min(adjusted_f, self.max_risk_pct)
         

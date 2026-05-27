@@ -463,7 +463,7 @@ class EnsembleAggregator(BaseModel):
                         for name in predictions
                         if predictions[name].ndim == 1
                     }
-                    ensemble_prediction[i] = self.bma.average(sample_preds)
+                    ensemble_prediction[i] = self.bma.average(sample_preds, regime=regime)
             else:
                 # Final fallback: simple average
                 pred_values = [predictions[n] for n in predictions if predictions[n].ndim == 1]
@@ -528,7 +528,8 @@ class EnsembleAggregator(BaseModel):
             confidence=confidence,
             uncertainty=mean_uncertainty,
             regime=regime,
-            sub_model_predictions=sub_model_preds
+            sub_model_predictions=sub_model_preds,
+            volatility=kwargs.get("volatility", None)
         )
 
         return signal

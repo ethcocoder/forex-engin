@@ -129,7 +129,8 @@ class RealTimePipeline(TradingPipeline):
             current_position=current_pos,
             unrealized_pnl=unrealized,
             time_indicator=hour_ind,
-            sample_idx=current_bar_idx
+            sample_idx=current_bar_idx,
+            volatility=market_data.get("volatility", 0.0005)
         )
         
         if signal.direction == 0:
@@ -323,6 +324,14 @@ def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="
         X_input = np.expand_dims(window, axis=0)
         hour_ind = timestamp.hour / 23.0
         
+        # Compute rolling volatility from recent close prices (20-bar window)
+        if i >= 20:
+            recent_closes = closes[i - 19 : i + 1]
+            log_rets = np.diff(np.log(recent_closes))
+            rolling_vol = float(np.std(log_rets))
+        else:
+            rolling_vol = 0.0005  # fallback for warmup period
+
         # Real-time market state parameters
         # CRITICAL: pip_value is the PRICE INCREMENT per pip (0.0001 for EURUSD),
         # NOT the dollar-value-per-pip. PaperBroker uses this to convert slippage
@@ -333,7 +342,7 @@ def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="
             "spread_pips": 0.75 + np.random.rand() * 0.5, # Realistic institutional spreads
             "adv": 1000000.0,
             "pip_value": 0.0001,  # Price per pip for EURUSD (4th decimal place)
-            "volatility": 0.0005
+            "volatility": rolling_vol
         }
         
         # Feed tick update to simulated broker
