@@ -26,13 +26,13 @@ To verify the GPU is active, run the following command in the first cell:
 
 ## 2. Clone the Repository
 
-Clone your repository into the Colab environment. Run this in a new cell:
+Clone your repository into the Colab environment and checkout the target branch. Run this in a new cell:
 
 ```python
 import os
 
-# Clone the repository
-!git clone https://github.com/ethcocoder/forex-engin.git
+# Clone the repository branch
+!git clone -b code-analysis-review-89c0e-2854086098776759399 https://github.com/ethcocoder/forex-engin.git
 %cd forex-engin
 ```
 
@@ -50,14 +50,11 @@ Install the required Python packages for the neural engine and its dependencies.
 # For local DB testing without Docker inside Colab, you can use SQLite.
 ```
 
-If you have specific C++ extensions (like the MAML speedups) that need to be compiled on the Linux T4 instance, run:
+If you have specific C++ extensions (like Kalman, RL, and MAML speedups) that need to be compiled on the Linux T4 instance, run the helper script:
 
 ```python
-# Compile MAML C++ speedups for Linux (.so)
-!g++ -O3 -shared -fPIC -o models/meta_learner/maml_speedups.so models/meta_learner/maml_speedups.cpp
-
-# Compile RL Environment C++ speedups for Linux (.so)
-!g++ -O3 -shared -fPIC -o models/rl_agent/rl_speedups.so models/rl_agent/rl_speedups.cpp
+# Compile all C++ speedups (Kalman wavelets, RL agent, and MAML speedups)
+!python scripts/compile_speedups.py
 ```
 
 ---
@@ -119,28 +116,39 @@ Now, compile the RL speedups and train the Reinforcement Learning Agent (PPO mod
 ```
 
 ### Step 5E: Train the Model-Agnostic Meta-Learner (MAML)
-Lastly, compile the MAML speedups and train the Model-Agnostic Meta-Learner. MAML learns a general initialization parameter set that can rapidly adapt to new market regimes or few-shot environments in just 5 gradient steps.
+Train the Model-Agnostic Meta-Learner. MAML learns a general initialization parameter set that can rapidly adapt to new market regimes or few-shot environments in just 5 gradient steps.
 
 ```python
-# Compile MAML speedups
-!g++ -O3 -shared -fPIC -o models/meta_learner/maml_speedups.so models/meta_learner/maml_speedups.cpp
-
 # Train MAML Model (default 50 epochs)
 !python scripts/train_meta.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv --epochs 50
 ```
 
-*(Note: The ensemble backtesting script is the final stage to combine all predictions!)*
+### Step 5F: Train the Ensemble Aggregator (Stacking Layer)
+Train the master `EnsembleAggregator` which trains a LightGBM stacking layer to unify predictions from the Temporal Model, Regime Ensemble, RL Agent, and MAML Model.
+
+```python
+# Train the Ensemble Stacker
+!python scripts/train_ensemble.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv
+```
+
+### Step 5G: Run the Backtest Simulation
+Verify out-of-sample performance by running the backtesting engines (both Vectorized and Event-Driven).
+
+```python
+# Run both Vectorized and Event-Driven Backtests
+!python scripts/run_backtest.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv --mode both
+```
 
 ---
 
 ## 6. Exporting Trained Weights
 
-Once training finishes, Colab will reset when you close the browser. Ensure you download the `.pt` or `.pkl` weight files!
+Once training finishes, Colab will reset when you close the browser. Ensure you download the `.pt`, `.pkl`, and ensemble metadata/model weights files!
 
 ```python
 from google.colab import files
 
-# Example of downloading the saved weights and scalers
+# Example of downloading the saved weights, scalers, and ensemble files
 files.download("saved_models/temporal_model.pt")
 files.download("saved_models/feature_scaler.pkl")
 files.download("saved_models/regime_ensemble.pkl")
@@ -149,6 +157,11 @@ files.download("saved_models/regime_ensemble.pkl.lstm")
 files.download("saved_models/regime_feature_scaler.pkl")
 files.download("saved_models/rl_agent_ppo.zip")
 files.download("saved_models/maml_model.pt")
+
+# Download Ensemble Aggregator files
+files.download("saved_models/ensemble_aggregator.meta")
+files.download("saved_models/ensemble_aggregator.lgbm")
+files.download("saved_models/ensemble_aggregator.bma")
 ```
 
 Alternatively, you can mount your Google Drive to save weights automatically:
