@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import torch
+from sklearn.preprocessing import StandardScaler
 import structlog
 
 from models.base_model import BaseModel
@@ -67,6 +68,12 @@ class EnsembleAggregator(BaseModel):
 
         # Feature column names for the stacking layer
         self._meta_feature_names: List[str] = []
+
+        # Meta-feature normalizer: fitted during training, applied at inference.
+        # This is CRITICAL to prevent ensemble cancellation when sub-models
+        # output predictions on wildly different scales (e.g., MAML ~[-0.7,0.1],
+        # regime ~[0.25], temporal ~[0.01,0.15], RL ~[0,1]).
+        self._meta_scaler: Optional[StandardScaler] = None
 
         # Caching for fast sequential event-loop backtesting
         self._prediction_cache = {}
@@ -140,11 +147,11 @@ class EnsembleAggregator(BaseModel):
                         predictions[name] = mean_pred
                         uncertainties[name] = uncertainty
                     else:
-                        pred = model.predict(X)
+                        pred = model.predict(X, **kwargs)
                         predictions[name] = np.atleast_1d(np.asarray(pred, dtype=np.float64))
                         uncertainties[name] = np.zeros_like(predictions[name])
                 else:
-                    pred = model.predict(X)
+                    pred = model.predict(X, **kwargs)
                     predictions[name] = np.atleast_1d(np.asarray(pred, dtype=np.float64))
                     uncertainties[name] = np.zeros_like(predictions[name])
 
@@ -343,15 +350,32 @@ class EnsembleAggregator(BaseModel):
                 X, y, self.stacking_n_splits
             )
 
-        # Train LightGBM stacking meta-model
-        self.lgbm_stacker = lgb.LGBMRegressor(**self.lgbm_params)
-        self.lgbm_stacker.fit(meta_features, aligned_y)
+        # STEP 1: Fit meta-feature normalizer BEFORE training the stacker.
+        # This resolves ensemble cancellation caused by scale mismatch across sub-models.
+        self._meta_scaler = StandardScaler()
+        meta_features_normalized = self._meta_scaler.fit_transform(meta_features)
 
+        logger.info(
+            "Meta-feature normalization fitted",
+            means={name: f"{m:.6f}" for name, m in zip(self._meta_feature_names, self._meta_scaler.mean_)},
+            stds={name: f"{s:.6f}" for name, s in zip(self._meta_feature_names, self._meta_scaler.scale_)}
+        )
+
+        # Train LightGBM stacking meta-model on normalized features
+        self.lgbm_stacker = lgb.LGBMRegressor(**self.lgbm_params)
+        self.lgbm_stacker.fit(meta_features_normalized, aligned_y)
+
+        # STEP 2: Log stacker feature importances for diagnostics
+        importances = self.lgbm_stacker.feature_importances_
+        importance_dict = {
+            name: int(imp) for name, imp in zip(self._meta_feature_names, importances)
+        }
         logger.info(
             "LightGBM stacking meta-model trained",
             n_meta_features=meta_features.shape[1],
             n_training_samples=meta_features.shape[0],
-            feature_names=self._meta_feature_names
+            feature_names=self._meta_feature_names,
+            feature_importances=importance_dict
         )
 
         # Initialize BMA with sub-model names
@@ -409,10 +433,16 @@ class EnsembleAggregator(BaseModel):
         meta_features = self._build_meta_features(predictions, uncertainties)
         logger.info("PREDICT META FEATURE NAMES", names=self._meta_feature_names, shape=meta_features.shape)
 
+        # Normalize meta-features using the scaler fitted during training
+        if self._meta_scaler is not None:
+            meta_features_input = self._meta_scaler.transform(meta_features)
+        else:
+            meta_features_input = meta_features
+
         # Dual-mode inference
         if mean_uncertainty < self.uncertainty_threshold and self.lgbm_stacker is not None:
             # Low uncertainty: use LightGBM stacking
-            ensemble_prediction = self.lgbm_stacker.predict(meta_features)
+            ensemble_prediction = self.lgbm_stacker.predict(meta_features_input)
             inference_mode = "stacking"
         else:
             # High uncertainty: BMA fallback
@@ -445,6 +475,15 @@ class EnsembleAggregator(BaseModel):
             for name in predictions
         }
 
+        # STEP 3: Compute ensemble disagreement metric.
+        # High disagreement = models fighting each other = signal unreliable.
+        scalar_preds = [
+            float(np.mean(predictions[n]))
+            for n in predictions
+            if predictions[n].ndim == 1
+        ]
+        disagreement = float(np.var(scalar_preds)) if len(scalar_preds) >= 2 else 0.0
+
         logger.debug(
             "Ensemble inference completed",
             mode=inference_mode,
@@ -452,7 +491,8 @@ class EnsembleAggregator(BaseModel):
             threshold=self.uncertainty_threshold,
             raw_pred_val=pred_val,
             direction_threshold=self.direction_threshold,
-            sub_model_preds=sub_model_preds
+            sub_model_preds=sub_model_preds,
+            disagreement=disagreement
         )
 
         if not return_signal:
@@ -504,10 +544,16 @@ class EnsembleAggregator(BaseModel):
         # Build meta-feature vector
         meta_features = self._build_meta_features(predictions, uncertainties)
 
+        # Normalize meta-features using the scaler fitted during training
+        if self._meta_scaler is not None:
+            meta_features_input = self._meta_scaler.transform(meta_features)
+        else:
+            meta_features_input = meta_features
+
         # Dual-mode inference
         if mean_uncertainty < self.uncertainty_threshold and self.lgbm_stacker is not None:
             # Low uncertainty: use LightGBM stacking
-            ensemble_prediction = self.lgbm_stacker.predict(meta_features)
+            ensemble_prediction = self.lgbm_stacker.predict(meta_features_input)
         else:
             # High uncertainty: BMA fallback
             if self.bma is not None:
@@ -573,7 +619,8 @@ class EnsembleAggregator(BaseModel):
             "lgbm_params": self.lgbm_params,
             "meta_feature_names": self._meta_feature_names,
             "torch_models": self._torch_models,
-            "sub_model_names": list(self.sub_models.keys())
+            "sub_model_names": list(self.sub_models.keys()),
+            "meta_scaler": self._meta_scaler
         }
 
         # Save metadata
@@ -616,6 +663,7 @@ class EnsembleAggregator(BaseModel):
         self.lgbm_params = state["lgbm_params"]
         self._meta_feature_names = state["meta_feature_names"]
         self._torch_models = state["torch_models"]
+        self._meta_scaler = state.get("meta_scaler", None)
 
         # Reload components
         self.mc_estimator = MCDropoutEstimator(n_forward_passes=self.n_mc_passes)
