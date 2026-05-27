@@ -465,7 +465,35 @@ def main():
             
         data_handler = CSVDataHandler(csv_dir="data", pairs=[pair])
         portfolio = BacktestPortfolio(initial_capital=10000.0)
-        risk_engine = RiskEngine(config=config.get("risk", {}))
+        
+        # Configure RiskEngine with sizer and filters from configuration
+        risk_cfg = config.get("risk", {})
+        risk_engine = RiskEngine(config=risk_cfg)
+        
+        from risk.sizing.fixed_fractional import FixedFractionalSizer
+        from risk.sizing.kelly import KellySizer
+        from risk.sizing.volatility_scaled import VolatilitySizer
+        from risk.limits.drawdown_limits import DrawdownFilter
+        
+        sizing_cfg = risk_cfg.get("sizing", {})
+        sizer_method = sizing_cfg.get("method", "fixed").lower()
+        
+        if sizer_method == "kelly":
+            kelly_frac = sizing_cfg.get("kelly_fraction", 0.25)
+            max_risk = sizing_cfg.get("max_account_risk_pct", 0.02)
+            sizer = KellySizer(fraction=kelly_frac, max_risk_pct=max_risk)
+        elif sizer_method == "volatility":
+            risk_pct = sizing_cfg.get("max_account_risk_pct", 0.02)
+            sizer = VolatilitySizer(risk_pct=risk_pct)
+        else:
+            fraction = sizing_cfg.get("max_account_risk_pct", 0.02)
+            sizer = FixedFractionalSizer(fraction=fraction)
+            
+        risk_engine.set_sizer(sizer)
+        
+        cb_cfg = risk_cfg.get("circuit_breakers", {})
+        if "daily_drawdown_limit" in cb_cfg:
+            risk_engine.register_limit(DrawdownFilter(max_daily_dd=cb_cfg["daily_drawdown_limit"]))
         
         engine = CustomEventDrivenEngine(
             data_handler=data_handler,

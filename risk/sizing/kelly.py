@@ -48,16 +48,20 @@ class KellySizer:
         p = portfolio_state.win_rate
         b = portfolio_state.win_loss_ratio
         
-        # Edge cases: no history or degenerate stats
-        if p <= 0.0 or b <= 0.0:
-            logger.debug("Degenerate Kelly inputs, returning 0 size", p=p, b=b)
-            return 0.0
+        # Cold start fallback: if win_rate and win_loss_ratio are at initial neutral settings
+        if p == 0.5 and b == 1.0:
+            kelly_f = 0.20  # 20% Kelly target as standard fallback
+        else:
+            # Edge cases: no history or degenerate stats
+            if p <= 0.0 or b <= 0.0:
+                logger.debug("Degenerate Kelly inputs, returning 0 size", p=p, b=b)
+                return 0.0
+                
+            q = 1.0 - p
             
-        q = 1.0 - p
-        
-        # Kelly fraction (f*)
-        kelly_f = (p * b - q) / b
-        
+            # Kelly fraction (f*)
+            kelly_f = (p * b - q) / b
+            
         if kelly_f <= 0.0:
             logger.debug("Negative or zero Kelly fraction, returning 0 size", kelly_f=kelly_f)
             return 0.0
