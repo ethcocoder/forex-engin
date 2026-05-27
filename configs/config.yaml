@@ -83,13 +83,13 @@ models:
     aggregation_method: "stacking" # stacking, bma
     mc_dropout_samples: 50
     stacking_meta_model: "lightgbm"
-    direction_threshold: 0.0001
+    direction_threshold: 0.0008
 
 # Institutional-Grade Risk Gating
 risk:
   sizing:
     method: "kelly" # kelly, fixed, volatility
-    kelly_fraction: 0.25
+    kelly_fraction: 0.15
     max_account_risk_pct: 0.02
   circuit_breakers:
     daily_drawdown_limit: 0.03
