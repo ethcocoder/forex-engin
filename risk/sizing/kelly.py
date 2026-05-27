@@ -54,13 +54,13 @@ class KellySizer:
         else:
             # Edge cases: no history or degenerate stats
             if p <= 0.0 or b <= 0.0:
-                logger.debug("Degenerate Kelly inputs, returning 0 size", p=p, b=b)
-                return 0.0
+                logger.debug("Degenerate Kelly inputs, falling back to minimum risk fraction", p=p, b=b)
+                kelly_f = 0.08
+            else:
+                q = 1.0 - p
                 
-            q = 1.0 - p
-            
-            # Kelly fraction (f*)
-            kelly_f = (p * b - q) / b
+                # Kelly fraction (f*)
+                kelly_f = (p * b - q) / b
             
         if kelly_f <= 0.0:
             logger.debug("Negative or zero Kelly fraction, falling back to minimum risk fraction", kelly_f=kelly_f)
