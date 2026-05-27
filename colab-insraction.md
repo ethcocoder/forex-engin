@@ -65,7 +65,7 @@ To train the models on real market behavior without needing any API tokens, you 
 
 ```python
 # Download 2 years of historical data from Yahoo Finance (Requires NO API key)
-!python scripts/download_data.py --pair EUR_USD --years 2 --source yfinance --output data/EUR_USD_ticks.csv
+!python scripts/download_data.py --pair EUR_USD --years 5 --source yfinance --output data/EUR_USD_ticks.csv
 ```
 
 *(Note: If you eventually want extremely dense 1-minute tick data for 5+ years, you can get a free OANDA Practice Token and run it with `--source oanda --token YOUR_TOKEN`).*

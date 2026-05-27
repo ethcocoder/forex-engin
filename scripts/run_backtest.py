@@ -146,10 +146,12 @@ class CustomVectorizedEngine(VectorizedBacktestEngine):
         if df is None or df.empty:
             logger.error("No data available for vectorized run", pair=pair)
             return {"status": "no_data"}
+        
+        logger.info("DIAG: raw df loaded", df_shape=df.shape, df_columns=list(df.columns), df_head_close=df["close"].head().tolist())
             
         n_samples = len(self.X_valid)
         
-        logger.info("Computing signals in batch...")
+        logger.info("Computing signals in batch...", n_samples=n_samples, X_valid_shape=self.X_valid.shape)
         # To avoid overheads, run predict in batches of 1000
         batch_size = 1000
         predictions = []
@@ -161,21 +163,59 @@ class CustomVectorizedEngine(VectorizedBacktestEngine):
             
         predictions = np.array(predictions)
         
+        logger.info("DIAG: predictions computed",
+            predictions_shape=predictions.shape,
+            pred_min=float(predictions.min()),
+            pred_max=float(predictions.max()),
+            pred_mean=float(predictions.mean()),
+            pred_std=float(predictions.std()),
+            pred_nonzero=int(np.count_nonzero(predictions))
+        )
+        
         # Align prediction outputs with the close prices
         # X_valid corresponds to sliding windows starting from seq_len - 1 to len(df) - horizon
         # Let's align df columns
         df_sub = df.iloc[self.seq_len - 1 : self.seq_len - 1 + n_samples].copy()
         df_sub["market_returns"] = df_sub["close"].pct_change()
         
+        logger.info("DIAG: df_sub",
+            df_sub_shape=df_sub.shape,
+            close_min=float(df_sub["close"].min()),
+            close_max=float(df_sub["close"].max()),
+            mkt_ret_nonzero=int(df_sub["market_returns"].notna().sum()),
+            mkt_ret_mean=float(df_sub["market_returns"].mean()) if df_sub["market_returns"].notna().any() else 0.0
+        )
+        
         # Signal direction mapping: Long (+1) if prediction > threshold, Short (-1) if prediction < -threshold, else Flat (0)
         threshold = self.strategy.direction_threshold
+        
+        logger.info("DIAG: threshold", threshold=threshold)
+        
+        # Ensure predictions and df_sub are aligned in length
+        actual_len = min(len(predictions), len(df_sub))
+        predictions = predictions[:actual_len]
+        df_sub = df_sub.iloc[:actual_len].copy()
+        df_sub["market_returns"] = df_sub["close"].pct_change()
+        
         df_sub["signal"] = np.where(predictions > threshold, 1, np.where(predictions < -threshold, -1, 0))
+        
+        n_long = int((df_sub["signal"] == 1).sum())
+        n_short = int((df_sub["signal"] == -1).sum())
+        n_flat = int((df_sub["signal"] == 0).sum())
+        logger.info("DIAG: signal counts", n_long=n_long, n_short=n_short, n_flat=n_flat, total=actual_len)
         
         # Shift signal by 1 step to avoid lookahead bias
         df_sub["strategy_returns"] = df_sub["signal"].shift(1) * df_sub["market_returns"]
         
         df_sub["cum_returns"] = (1 + df_sub["strategy_returns"].fillna(0)).cumprod()
         equity_curve = self.portfolio.initial_capital * df_sub["cum_returns"]
+        
+        logger.info("DIAG: equity curve",
+            start_equity=float(equity_curve.iloc[0]),
+            end_equity=float(equity_curve.iloc[-1]),
+            min_equity=float(equity_curve.min()),
+            max_equity=float(equity_curve.max())
+        )
         
         # Realized trades
         df_sub["trade_trigger"] = df_sub["signal"].diff().fillna(0)
@@ -190,6 +230,8 @@ class CustomVectorizedEngine(VectorizedBacktestEngine):
                 "pnl": float(row["strategy_returns"] * self.portfolio.initial_capital),
                 "timestamp": ts
             })
+        
+        logger.info("DIAG: trades", n_raw_trades=len(raw_trades))
             
         self.portfolio.equity_history = equity_curve.tolist()
         
@@ -439,6 +481,12 @@ def main():
         # Warm up aggregator cache for static models to speed up event loop by 100x+
         logger.info("Warming up EnsembleAggregator prediction cache...")
         agg.enable_caching(X_master)
+        
+        logger.info("DIAG: Event-driven setup",
+            X_master_shape=X_master.shape,
+            direction_threshold=agg.direction_threshold,
+            signal_gen_threshold=agg.signal_generator.direction_threshold
+        )
         
         results["event_driven"] = engine.run()
         

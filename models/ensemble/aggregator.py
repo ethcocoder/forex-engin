@@ -31,7 +31,8 @@ class EnsembleAggregator(BaseModel):
         config = config or {}
         super().__init__(name=name, config=config)
 
-        ensemble_cfg = config.get("ensemble", {})
+        # Support both flat config ("ensemble": {...}) and nested ("models": {"ensemble": {...}})
+        ensemble_cfg = config.get("ensemble", config.get("models", {}).get("ensemble", {}))
 
         # Hyperparameters
         self.uncertainty_threshold = ensemble_cfg.get("uncertainty_threshold", 0.3)
@@ -434,17 +435,19 @@ class EnsembleAggregator(BaseModel):
                     ensemble_prediction = np.zeros(X.shape[0])
             inference_mode = "bma"
 
-        logger.debug(
-            "Ensemble inference completed",
-            mode=inference_mode,
-            mean_uncertainty=mean_uncertainty,
-            threshold=self.uncertainty_threshold
-        )
-
         if single_sample:
             pred_val = float(ensemble_prediction[0])
         else:
             pred_val = float(np.mean(ensemble_prediction))
+
+        logger.debug(
+            "Ensemble inference completed",
+            mode=inference_mode,
+            mean_uncertainty=mean_uncertainty,
+            threshold=self.uncertainty_threshold,
+            raw_pred_val=pred_val,
+            direction_threshold=self.direction_threshold
+        )
 
         if not return_signal:
             return pred_val
