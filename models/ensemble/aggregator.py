@@ -10,7 +10,7 @@ import structlog
 from models.base_model import BaseModel
 from models.ensemble.signal_generator import AlphaSignal, SignalGenerator
 from models.ensemble.uncertainty import MCDropoutEstimator
-from models.ensemble.weighting import BayesianModelAverager
+from models.ensemble.weighting import BayesianModelAverager, REGIME_MODIFIERS
 
 logger = structlog.get_logger()
 
@@ -453,25 +453,37 @@ class EnsembleAggregator(BaseModel):
             ensemble_prediction = self.lgbm_stacker.predict(df_meta_input)
             inference_mode = "stacking"
         else:
-            # High uncertainty: BMA fallback
-            if self.bma is not None:
-                # Average over samples
-                ensemble_prediction = np.zeros(X.shape[0])
-                for i in range(X.shape[0]):
-                    sample_preds = {
-                        name: float(predictions[name][i])
-                        for name in predictions
-                        if predictions[name].ndim == 1
-                    }
-                    ensemble_prediction[i] = self.bma.average(sample_preds, regime=regime)
-            else:
-                # Final fallback: simple average
-                pred_values = [predictions[n] for n in predictions if predictions[n].ndim == 1]
-                if pred_values:
-                    ensemble_prediction = np.mean(np.stack(pred_values, axis=0), axis=0)
-                else:
-                    ensemble_prediction = np.zeros(X.shape[0])
-            inference_mode = "bma"
+            # High uncertainty: Ensemble Agreement Weighting fallback (Option C)
+            ensemble_prediction = np.zeros(X.shape[0])
+            for i in range(X.shape[0]):
+                p_temp = float(predictions["temporal"][i])
+                u_temp = float(uncertainties["temporal"][i]) if "temporal" in uncertainties else 0.15
+                
+                p_maml = float(predictions["maml"][i])
+                u_maml = float(uncertainties["maml"][i]) if "maml" in uncertainties else 0.15
+                
+                p_rl = float(predictions["rl"][i]) if "rl" in predictions else 0.0
+                u_rl = 0.20  # RL uncertainty proxy
+                
+                # Dynamic inverse uncertainty weights
+                w_temp = 1.0 / max(u_temp, 1e-5)
+                w_maml = 1.0 / max(u_maml, 1e-5)
+                w_rl = 1.0 / max(u_rl, 1e-5)
+                
+                # Apply regime-specific modifiers
+                modifiers = REGIME_MODIFIERS.get(regime, {})
+                w_temp *= modifiers.get("temporal", 1.0)
+                w_maml *= modifiers.get("maml", 1.0)
+                w_rl *= modifiers.get("rl", 1.0)
+                
+                # Normalize weights
+                total_w = w_temp + w_maml + w_rl
+                w_temp /= total_w
+                w_maml /= total_w
+                w_rl /= total_w
+                
+                ensemble_prediction[i] = w_temp * p_temp + w_maml * p_maml + w_rl * p_rl
+            inference_mode = "agreement_weighting"
 
         if single_sample:
             pred_val = float(ensemble_prediction[0])
