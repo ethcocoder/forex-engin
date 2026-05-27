@@ -34,10 +34,12 @@ logger = structlog.get_logger()
 
 class RealTimePipeline(TradingPipeline):
     """
-    Extends TradingPipeline to perform automated exits based on dynamic holding decay steps.
+    Extends TradingPipeline to perform automated exits based on dynamic holding decay steps
+    and logs realized trades to the PerformanceTracker.
     """
-    def __init__(self, ensemble, risk_engine, execution_engine, initial_capital=100000.0):
+    def __init__(self, ensemble, risk_engine, execution_engine, tracker, initial_capital=100000.0):
         super().__init__(ensemble, risk_engine, execution_engine, initial_capital=initial_capital)
+        self.tracker = tracker
         self.trade_durations = {} # pair -> count of bars held
         self.max_hold_steps = 9   # Default signal decay steps
         
@@ -47,6 +49,11 @@ class RealTimePipeline(TradingPipeline):
         self.portfolio_state.open_positions = actual_positions
 
         current_pos = actual_positions.get(pair, 0.0)
+        
+        # Track before state
+        broker = self.execution_engine.broker
+        cash_before = broker.cash
+        pos_before = current_pos
 
         # 2. Dynamic holding & exit processing
         if current_pos != 0.0:
@@ -59,6 +66,22 @@ class RealTimePipeline(TradingPipeline):
                 exit_order = OrderRequest(pair=pair, direction=direction, size=abs(current_pos))
                 self.execution_engine.execute(exit_order)
                 self.trade_durations[pair] = 0
+                
+                # Check exit pnl
+                cash_after = broker.cash
+                pos_after = broker.positions.get(pair, 0.0)
+                if cash_after != cash_before:
+                    realized_pnl = cash_after - cash_before
+                    return_pct = realized_pnl / cash_before
+                    self.update_pnl(realized_pnl, return_pct)
+                    self.tracker.log_trade(
+                        pair=pair,
+                        direction=direction,
+                        size=abs(pos_before - pos_after),
+                        pnl=realized_pnl,
+                        slippage_pips=0.0
+                    )
+                    self.tracker.update_equity(cash_after, time.time())
                 return
         else:
             self.trade_durations[pair] = 0
@@ -66,7 +89,6 @@ class RealTimePipeline(TradingPipeline):
         # Calculate unrealized pnl for RL environment wrapper state tracking
         unrealized = 0.0
         if current_pos != 0.0:
-            broker = self.execution_engine.broker
             entry = getattr(broker, "entry_prices", {}).get(pair, getattr(broker, "avg_entry", {}).get(pair, market_data["close"]))
             unrealized = current_pos * (market_data["close"] - entry)
 
@@ -93,6 +115,22 @@ class RealTimePipeline(TradingPipeline):
                 logger.info("Real-Time order executed successfully", pair=pair, direction=order.direction, size=order.size)
                 self.trade_durations[pair] = 0
                 self.max_hold_steps = signal.expected_decay_steps
+                
+                # Check entry/reversal pnl
+                cash_after = broker.cash
+                pos_after = broker.positions.get(pair, 0.0)
+                if cash_after != cash_before:
+                    realized_pnl = cash_after - cash_before
+                    return_pct = realized_pnl / cash_before
+                    self.update_pnl(realized_pnl, return_pct)
+                    self.tracker.log_trade(
+                        pair=pair,
+                        direction=order.direction,
+                        size=abs(pos_before - pos_after),
+                        pnl=realized_pnl,
+                        slippage_pips=0.0
+                    )
+                    self.tracker.update_equity(cash_after, time.time())
 
 
 def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="data/EUR_USD_ticks.csv"):
@@ -225,14 +263,15 @@ def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="
     broker = PaperBroker(config={"initial_capital": initial_capital})
     execution_engine = ExecutionEngine(broker=broker)
     
+    tracker = PerformanceTracker(initial_capital=initial_capital)
+    
     pipeline = RealTimePipeline(
         ensemble=agg,
         risk_engine=risk_engine,
         execution_engine=execution_engine,
+        tracker=tracker,
         initial_capital=initial_capital
     )
-    
-    tracker = PerformanceTracker(initial_capital=initial_capital)
     
     # 7. Real-time Tick Ingestion Simulation Loop
     logger.info("Deploying Real-Time Trading Pipeline loop against live data simulator...")
@@ -254,12 +293,15 @@ def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="
         hour_ind = timestamp.hour / 23.0
         
         # Real-time market state parameters
+        # CRITICAL: pip_value is the PRICE INCREMENT per pip (0.0001 for EURUSD),
+        # NOT the dollar-value-per-pip. PaperBroker uses this to convert slippage
+        # pips into price deltas for fill price calculation.
         market_data = {
             "close": close,
             "mid_price": close,
             "spread_pips": 0.75 + np.random.rand() * 0.5, # Realistic institutional spreads
             "adv": 1000000.0,
-            "pip_value": 10.0,
+            "pip_value": 0.0001,  # Price per pip for EURUSD (4th decimal place)
             "volatility": 0.0005
         }
         
@@ -269,13 +311,28 @@ def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="
         # Process tick through real models & risk gate
         pipeline.process_tick(pair, X_input, hour_ind, market_data, i - seq_len + 1)
         
+        # Mark-to-market equity (cash + unrealized PnL of open positions)
+        mtm_equity = broker.cash
+        for pos_pair, pos_size in broker.positions.items():
+            entry_px = broker.entry_prices.get(pos_pair, close)
+            mtm_equity += pos_size * (close - entry_px)
+        
         # Periodic equity logging
         if (i - start_tick) % 1000 == 0:
-            logger.info("Real-Time Paper Account State", timestamp=timestamp.isoformat(), equity=broker.cash, open_positions=broker.get_positions())
-            tracker.update_equity(broker.cash, timestamp.timestamp())
+            logger.info("Real-Time Paper Account State",
+                        timestamp=timestamp.isoformat(),
+                        cash=broker.cash,
+                        mtm_equity=round(mtm_equity, 2),
+                        open_positions=broker.get_positions())
+            tracker.update_equity(mtm_equity, timestamp.timestamp())
             
-    # Compile performance sheet
-    tracker.update_equity(broker.cash, timestamps[-1].timestamp())
+    # Final mark-to-market
+    final_equity = broker.cash
+    for pos_pair, pos_size in broker.positions.items():
+        entry_px = broker.entry_prices.get(pos_pair, closes[-1])
+        final_equity += pos_size * (closes[-1] - entry_px)
+    
+    tracker.update_equity(final_equity, timestamps[-1].timestamp())
     print("\n" + "="*80)
     print("           REAL-TIME HIGH-FIDELITY PAPER TRADING PERFORMANCE REPORT")
     print("="*80)
