@@ -1,12 +1,25 @@
 import os
 import sys
+
+# Limit CPU threads to optimize loading and memory on 8GB RAM machines
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 import argparse
 import numpy as np
 import pandas as pd
 import structlog
 import pickle
 import torch
+import gc
 import joblib
+
+torch.set_num_threads(1)
+torch.set_num_interop_threads(1)
+torch.set_grad_enabled(False)
 
 # Ensure the root directory is in the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))

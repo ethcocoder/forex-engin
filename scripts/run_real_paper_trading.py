@@ -1,10 +1,24 @@
 import os
 import sys
+
+# Limit CPU threads for NumPy, PyTorch, etc., to optimize loading and execution on 8GB RAM
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 import time
 import pickle
 import numpy as np
 import pandas as pd
 import torch
+import gc
+
+torch.set_num_threads(1)
+torch.set_num_interop_threads(1)
+torch.set_grad_enabled(False)
+
 import structlog
 from datetime import datetime
 
