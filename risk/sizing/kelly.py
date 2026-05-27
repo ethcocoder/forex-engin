@@ -63,8 +63,8 @@ class KellySizer:
             kelly_f = (p * b - q) / b
             
         if kelly_f <= 0.0:
-            logger.debug("Negative or zero Kelly fraction, returning 0 size", kelly_f=kelly_f)
-            return 0.0
+            logger.debug("Negative or zero Kelly fraction, falling back to minimum risk fraction", kelly_f=kelly_f)
+            kelly_f = 0.08  # safe minimum raw Kelly fraction (e.g., 2% risk with 0.25 multiplier)
             
         # Apply fractional multiplier
         fractional_kelly = kelly_f * self.fraction
