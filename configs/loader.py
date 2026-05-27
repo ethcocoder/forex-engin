@@ -147,6 +147,7 @@ class EnsembleConfig(BaseModel):
     aggregation_method: Literal["stacking", "bma"] = Field(default="stacking")
     mc_dropout_samples: int = Field(default=50)
     stacking_meta_model: str = Field(default="lightgbm")
+    direction_threshold: float = Field(default=0.002)
 
 
 class ModelsConfig(BaseModel):
