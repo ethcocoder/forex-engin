@@ -496,6 +496,10 @@ class EnsembleAggregator(BaseModel):
         ]
         disagreement = float(np.var(scalar_preds)) if len(scalar_preds) >= 2 else 0.0
 
+        # Apply prediction separation scaling and disagreement penalty
+        disagreement_factor = float(np.clip(1.0 - disagreement, 0.0, 1.0))
+        pred_val = pred_val * disagreement_factor * 10.0
+
         logger.debug(
             "Ensemble inference completed",
             mode=inference_mode,
