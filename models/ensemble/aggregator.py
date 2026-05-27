@@ -440,13 +440,19 @@ class EnsembleAggregator(BaseModel):
         else:
             pred_val = float(np.mean(ensemble_prediction))
 
+        sub_model_preds = {
+            name: float(np.mean(predictions[name]))
+            for name in predictions
+        }
+
         logger.debug(
             "Ensemble inference completed",
             mode=inference_mode,
             mean_uncertainty=mean_uncertainty,
             threshold=self.uncertainty_threshold,
             raw_pred_val=pred_val,
-            direction_threshold=self.direction_threshold
+            direction_threshold=self.direction_threshold,
+            sub_model_preds=sub_model_preds
         )
 
         if not return_signal:
@@ -464,11 +470,6 @@ class EnsembleAggregator(BaseModel):
             confidence = float(np.clip(agreement, 0.0, 1.0))
         else:
             confidence = 0.5
-
-        sub_model_preds = {
-            name: float(np.mean(predictions[name]))
-            for name in predictions
-        }
 
         signal = self.signal_generator.generate(
             prediction=pred_val,
