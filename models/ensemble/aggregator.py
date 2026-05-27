@@ -361,9 +361,13 @@ class EnsembleAggregator(BaseModel):
             stds={name: f"{s:.6f}" for name, s in zip(self._meta_feature_names, self._meta_scaler.scale_)}
         )
 
+        # Convert to pandas DataFrame to preserve feature names and prevent UserWarnings
+        import pandas as pd
+        df_meta = pd.DataFrame(meta_features_normalized, columns=self._meta_feature_names)
+
         # Train LightGBM stacking meta-model on normalized features
         self.lgbm_stacker = lgb.LGBMRegressor(**self.lgbm_params)
-        self.lgbm_stacker.fit(meta_features_normalized, aligned_y)
+        self.lgbm_stacker.fit(df_meta, aligned_y)
 
         # STEP 2: Log stacker feature importances for diagnostics
         importances = self.lgbm_stacker.feature_importances_
@@ -439,10 +443,14 @@ class EnsembleAggregator(BaseModel):
         else:
             meta_features_input = meta_features
 
+        # Convert to pandas DataFrame to preserve feature names and prevent UserWarnings
+        import pandas as pd
+        df_meta_input = pd.DataFrame(meta_features_input, columns=self._meta_feature_names)
+
         # Dual-mode inference
         if mean_uncertainty < self.uncertainty_threshold and self.lgbm_stacker is not None:
             # Low uncertainty: use LightGBM stacking
-            ensemble_prediction = self.lgbm_stacker.predict(meta_features_input)
+            ensemble_prediction = self.lgbm_stacker.predict(df_meta_input)
             inference_mode = "stacking"
         else:
             # High uncertainty: BMA fallback
