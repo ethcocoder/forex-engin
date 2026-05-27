@@ -478,10 +478,14 @@ class EnsembleAggregator(BaseModel):
         else:
             pred_val = float(np.mean(ensemble_prediction))
 
-        sub_model_preds = {
-            name: float(np.mean(predictions[name]))
-            for name in predictions
-        }
+        sub_model_preds = {}
+        for name in predictions:
+            pred_arr = predictions[name]
+            if name == "regime" and pred_arr.ndim > 1 and pred_arr.shape[-1] > 1:
+                # Log the argmax (predicted regime index) for the first sample in the batch
+                sub_model_preds[name] = int(np.argmax(pred_arr[0]))
+            else:
+                sub_model_preds[name] = float(np.mean(pred_arr))
 
         # STEP 3: Compute ensemble disagreement metric.
         # High disagreement = models fighting each other = signal unreliable.

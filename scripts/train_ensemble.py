@@ -124,18 +124,8 @@ class RegimeEnsembleWrapper:
         pass
         
     def predict(self, X, **kwargs):
-        # Extract HMM features from raw unscaled features
-        regime_features_df = self.features_df[self.hmm_features]
-        regime_features_scaled = (regime_features_df.values - self.regime_mean) / self.regime_std
-        regime_features_scaled = np.nan_to_num(regime_features_scaled, nan=0.0, posinf=0.0, neginf=0.0)
-        
-        from numpy.lib.stride_tricks import sliding_window_view
-        windows = sliding_window_view(regime_features_scaled, window_shape=(self.seq_len, regime_features_scaled.shape[1]))
-        X_regime = windows.squeeze(1)
-        
-        n_samples = X.shape[0]
-        X_regime = X_regime[:n_samples]
-        return self.regime_model.predict(X_regime, return_proba=True)
+        # Extract regime probabilities from the last columns of X (which has been appended with regime columns)
+        return X[:, -1, -4:]
 
 
 class RLEnsembleWrapper:
@@ -153,13 +143,12 @@ class RLEnsembleWrapper:
         
     def predict(self, X, **kwargs):
         # X shape: [n_samples, seq_len, d_feat_total]
-        # Construct RL observation: [feats_scaled] + [pos] + [unrealized] + [time_indicator] + [regime_probs]
+        # Construct RL observation: [feats_raw] + [pos] + [unrealized] + [time_indicator] + [regime_probs]
         n_samples = X.shape[0]
         
-        # 1. Scaled raw features (first features_cols)
+        # 1. Raw unscaled features (RL agent is trained on raw unscaled features)
         feats_raw = X[:, -1, :len(self.features_cols)]
-        feats = (feats_raw - self.scaler_mean) / self.scaler_std
-        feats = np.nan_to_num(feats, nan=0.0, posinf=0.0, neginf=0.0)
+        feats = np.nan_to_num(feats_raw, nan=0.0, posinf=0.0, neginf=0.0)
         
         # 2. Position (flat during offline prediction/alignment)
         pos = np.zeros((n_samples, 1), dtype=np.float32)

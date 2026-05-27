@@ -108,8 +108,7 @@ class RLEnsembleWrapper:
     def predict(self, X, **kwargs):
         n_samples = X.shape[0]
         feats_raw = X[:, -1, :len(self.features_cols)]
-        feats = (feats_raw - self.scaler_mean) / self.scaler_std
-        feats = np.nan_to_num(feats, nan=0.0, posinf=0.0, neginf=0.0)
+        feats = np.nan_to_num(feats_raw, nan=0.0, posinf=0.0, neginf=0.0)
         
         # Pull environment observations variables from kwargs
         pos = np.full((n_samples, 1), kwargs.get("current_position", 0.0), dtype=np.float32)
