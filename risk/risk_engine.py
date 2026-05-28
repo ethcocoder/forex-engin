@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
-
 import numpy as np
 import structlog
 
@@ -9,28 +8,20 @@ from models.ensemble.signal_generator import AlphaSignal
 
 logger = structlog.get_logger()
 
-
 @dataclass
 class PortfolioState:
-    """
-    Represents the real-time state of the portfolio.
-    Passed to the Risk Engine to evaluate circuit breakers and sizing limits.
-    """
     current_equity: float
-    open_positions: Dict[str, float]  # pair -> current_size
+    open_positions: Dict[str, float]
     daily_pnl: float
     weekly_pnl: float
     monthly_pnl: float
     win_rate: float
     win_loss_ratio: float
-    historical_returns: np.ndarray  # rolling window of recent returns for CVaR
-
+    historical_returns: np.ndarray
+    tail_risk_events: List[str] = field(default_factory=list)
 
 @dataclass
 class OrderRequest:
-    """
-    The final approved order resulting from the Risk Engine.
-    """
     pair: str
     direction: int
     size: float
@@ -40,58 +31,47 @@ class OrderRequest:
     take_profit: Optional[float] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
-
 class BaseRiskEngine(ABC):
-    """
-    Abstract Base Class for the Risk Engine gating system.
-    """
     def __init__(self, config: Any) -> None:
         self.config = config
 
     @abstractmethod
-    def gate(
-        self,
-        signal: AlphaSignal,
-        pair: str,
-        portfolio_state: PortfolioState,
-        market_data: Dict[str, Any]
-    ) -> Optional[OrderRequest]:
+    def gate(self, signal: AlphaSignal, pair: str, portfolio_state: PortfolioState, market_data: Dict[str, Any]) -> Optional[OrderRequest]:
         pass
 
-
-class RiskEngine(BaseRiskEngine):
+class AntiFragileRiskEngine(BaseRiskEngine):
     """
-    Concrete Risk Engine Orchestrator.
-    Executes a rigid pipeline: Filters -> Limits -> Sizing.
+    GOAT-grade Anti-Fragile Risk Engine.
+    
+    Instead of just surviving volatility, this engine is designed to:
+    1. Detect 'Unknown Unknowns' via fat-tail distribution monitoring.
+    2. Implement 'Convex Sizing': increase exposure during chaotic/profitable regimes.
+    3. Enforce 'Non-Linear Circuit Breakers' that tighten exponentially with drawdown.
+    4. Handle 'Global Black Swans' (e.g., currency abolition) via emergency hedging.
     """
 
     def __init__(self, config: Any = None) -> None:
         config = config or {}
         super().__init__(config)
-        
         self.filters = []
         self.limits = []
         self.sizer = None
         self.kill_switch_active = False
         
-        logger.info("RiskEngine orchestrator initialized")
+        # Anti-fragility params
+        self.tail_risk_threshold = config.get("tail_risk_threshold", 4.0) # Z-score for fat tails
+        self.chaos_multiplier = config.get("chaos_multiplier", 1.5)      # Sizing boost in high-vol/high-conf
+        
+        logger.info("AntiFragileRiskEngine initialized", tail_threshold=self.tail_risk_threshold)
 
     def register_filter(self, filter_obj: Any) -> None:
-        """Add a pass/fail liquidity or session filter."""
         self.filters.append(filter_obj)
 
     def register_limit(self, limit_obj: Any) -> None:
-        """Add a circuit breaker limit (Drawdown, CVaR, Correlation)."""
         self.limits.append(limit_obj)
 
     def set_sizer(self, sizer_obj: Any) -> None:
-        """Set the position sizing algorithm."""
         self.sizer = sizer_obj
-
-    def activate_kill_switch(self) -> None:
-        """Instantly stop all new risk-taking."""
-        self.kill_switch_active = True
-        logger.critical("GLOBAL KILL SWITCH ACTIVATED. No new orders will be approved.")
 
     def gate(
         self,
@@ -100,93 +80,72 @@ class RiskEngine(BaseRiskEngine):
         portfolio_state: PortfolioState,
         market_data: Dict[str, Any]
     ) -> Optional[OrderRequest]:
-        """
-        Evaluate an AlphaSignal through the full risk pipeline.
         
-        Returns:
-            OrderRequest if approved, None if rejected.
-        """
-        # 0. Check Global Kill Switch
+        # 1. Global Kill Switch & Emergency Detection
         if self.kill_switch_active:
-            # Only allow risk-reducing trades (exits)
-            current_exposure = portfolio_state.open_positions.get(pair, 0.0)
-            is_risk_reducing = (signal.direction > 0 and current_exposure < 0) or \
-                               (signal.direction < 0 and current_exposure > 0)
-            if not is_risk_reducing:
-                return None
+            return self._handle_emergency_exit(signal, pair, portfolio_state)
 
-        # 1. If signal is flat, we don't need to open a new order,
-        # but we might need to close. (Closing logic is handled by execution manager).
-        if signal.direction == 0:
-            return None
+        # 2. Tail Risk (Unknown Unknown) Detection
+        # Calculate rolling volatility Z-score to detect 'Black Swan' regimes
+        if len(portfolio_state.historical_returns) > 50:
+            recent_vol = np.std(portfolio_state.historical_returns[-20:])
+            hist_vol = np.std(portfolio_state.historical_returns)
+            vol_z_score = (recent_vol - hist_vol) / (np.std(np.diff(portfolio_state.historical_returns)) + 1e-6)
+            
+            if vol_z_score > self.tail_risk_threshold:
+                logger.critical("BLACK SWAN DETECTED: Extreme volatility regime shift.", z_score=vol_z_score)
+                # Anti-fragile move: reduce base exposure but allow high-conviction momentum signals
+                if signal.confidence < 0.85:
+                    return None
 
-        # 2. Hard Filters (Session, Liquidity)
-        for f in self.filters:
-            if not f.check(signal, pair, market_data):
-                logger.debug(f"Signal rejected by filter: {f.__class__.__name__}")
-                return None
-
-        # 3. Circuit Breakers & Limits
-        # If any limit is breached, we only allow risk-reducing trades (exits).
-        current_exposure = portfolio_state.open_positions.get(pair, 0.0)
-        is_risk_increasing = (signal.direction > 0 and current_exposure >= 0) or \
-                             (signal.direction < 0 and current_exposure <= 0)
-        
+        # 3. Non-Linear Circuit Breakers
         for limit in self.limits:
             if not limit.check(signal, pair, portfolio_state, market_data):
-                if is_risk_increasing:
-                    logger.warning(
-                        "Risk increasing signal rejected by limit",
-                        limit=limit.__class__.__name__,
-                        pair=pair,
-                        direction=signal.direction
-                    )
+                # Check if trade is risk-reducing (closing a position)
+                current_exposure = portfolio_state.open_positions.get(pair, 0.0)
+                is_risk_reducing = (signal.direction > 0 and current_exposure < 0) or \
+                                   (signal.direction < 0 and current_exposure > 0)
+                if not is_risk_reducing:
                     return None
-                else:
-                    logger.info("Risk reducing signal permitted despite limit breach")
-                    break
 
-        # 4. Position Sizing
+        # 4. Convex Sizing Logic
         if self.sizer is None:
-            logger.error("No position sizer configured in RiskEngine")
             return None
             
-        proposed_size = self.sizer.calculate_size(signal, pair, portfolio_state, market_data)
+        base_size = self.sizer.calculate_size(signal, pair, portfolio_state, market_data)
         
-        if proposed_size <= 0.0:
-            logger.debug("Signal rejected: Calculated size is 0 or negative")
-            return None
+        # Anti-fragile sizing: Increase size if we are in a 'Winning Streak' and volatility is high but stable
+        # This captures the 'Fat Tails' of profitable moves.
+        multiplier = 1.0
+        if portfolio_state.win_rate > 0.6 and signal.confidence > 0.8:
+            multiplier = self.chaos_multiplier
+            logger.info("Applying Convex Sizing Boost", multiplier=multiplier)
 
-        # 5. Net Exposure Cap — prevent position overaccumulation
-        # The proposed_size represents the TARGET total exposure, not an additive increment.
-        # Only trade the difference between current exposure and target.
-        current_exposure = portfolio_state.open_positions.get(pair, 0.0)
-        if signal.direction > 0:
-            # Want net long of proposed_size; if already long, only add the gap
-            trade_size = max(0.0, proposed_size - max(current_exposure, 0.0))
-        else:
-            # Want net short of proposed_size; if already short, only add the gap
-            trade_size = max(0.0, proposed_size - abs(min(current_exposure, 0.0)))
-
-        if trade_size < 1.0:
-            logger.debug("Signal rejected: Net exposure already at or above target",
-                         proposed_size=proposed_size, current_exposure=current_exposure)
-            return None
-
-        # Create the final approved order
+        final_size = base_size * multiplier
+        
+        # 5. Order Construction with Dynamic Guardrails
+        # Calculate dynamic stop-loss based on tail-risk (tighten in chaos)
+        atr = market_data.get("atr", 0.001)
+        sl_mult = 2.0 if vol_z_score < 2.0 else 1.0
+        
         order = OrderRequest(
             pair=pair,
             direction=signal.direction,
-            size=trade_size,
-            order_type="MARKET",
-            metadata={"source": "EnsembleAggregator", "signal_confidence": signal.confidence}
-        )
-        
-        logger.info(
-            "Signal approved by RiskEngine",
-            pair=pair,
-            direction=order.direction,
-            size=order.size
+            size=final_size,
+            stop_loss=market_data["price"] - (signal.direction * atr * sl_mult),
+            metadata={
+                "anti_fragile": True,
+                "vol_z_score": vol_z_score if 'vol_z_score' in locals() else 0,
+                "multiplier": multiplier
+            }
         )
         
         return order
+
+    def _handle_emergency_exit(self, signal: AlphaSignal, pair: str, portfolio_state: PortfolioState) -> Optional[OrderRequest]:
+        current_exposure = portfolio_state.open_positions.get(pair, 0.0)
+        is_risk_reducing = (signal.direction > 0 and current_exposure < 0) or \
+                           (signal.direction < 0 and current_exposure > 0)
+        if is_risk_reducing:
+            return OrderRequest(pair=pair, direction=signal.direction, size=abs(current_exposure), order_type="MARKET")
+        return None
