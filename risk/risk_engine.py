@@ -72,6 +72,7 @@ class RiskEngine(BaseRiskEngine):
         self.filters = []
         self.limits = []
         self.sizer = None
+        self.kill_switch_active = False
         
         logger.info("RiskEngine orchestrator initialized")
 
@@ -87,6 +88,11 @@ class RiskEngine(BaseRiskEngine):
         """Set the position sizing algorithm."""
         self.sizer = sizer_obj
 
+    def activate_kill_switch(self) -> None:
+        """Instantly stop all new risk-taking."""
+        self.kill_switch_active = True
+        logger.critical("GLOBAL KILL SWITCH ACTIVATED. No new orders will be approved.")
+
     def gate(
         self,
         signal: AlphaSignal,
@@ -100,6 +106,15 @@ class RiskEngine(BaseRiskEngine):
         Returns:
             OrderRequest if approved, None if rejected.
         """
+        # 0. Check Global Kill Switch
+        if self.kill_switch_active:
+            # Only allow risk-reducing trades (exits)
+            current_exposure = portfolio_state.open_positions.get(pair, 0.0)
+            is_risk_reducing = (signal.direction > 0 and current_exposure < 0) or \
+                               (signal.direction < 0 and current_exposure > 0)
+            if not is_risk_reducing:
+                return None
+
         # 1. If signal is flat, we don't need to open a new order,
         # but we might need to close. (Closing logic is handled by execution manager).
         if signal.direction == 0:
