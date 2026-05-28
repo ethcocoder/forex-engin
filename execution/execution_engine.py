@@ -28,18 +28,21 @@ class GOATExecutionEngine:
         logger.info("GOAT ExecutionEngine initialized", mode="C++ Hybrid")
 
     def _load_speedups(self) -> Optional[ctypes.CDLL]:
-        try:
-            _ext = ".so" if not sys.platform.startswith("win") else ".dll"
-            lib_path = os.path.join(os.path.dirname(__file__), f"execution_speedups{_ext}")
-            if os.path.exists(lib_path):
-                lib = ctypes.CDLL(lib_path)
-                # Define argtypes for safety
-                return lib
-        except Exception as e:
-            logger.warning("C++ speedups not found, falling back to Python-only execution", error=str(e))
-        return None
+        _ext = ".so" if not sys.platform.startswith("win") else ".dll"
+        lib_path = os.path.join(os.path.dirname(__file__), f"execution_speedups{_ext}")
+        if not os.path.exists(lib_path):
+            logger.info("C++ speedups not found, using Python fallback", path=lib_path)
+            return None
 
-    def execute(self, order: OrderRequest, market_data: Dict[str, Any]) -> bool:
+        try:
+            lib = ctypes.CDLL(lib_path)
+            # Define argtypes for safety
+            return lib
+        except Exception as e:
+            logger.info("Failed to load C++ speedup library; continuing with Python fallback", path=lib_path, error=str(e))
+            return None
+
+    def execute(self, order: OrderRequest, market_data: Optional[Dict[str, Any]] = None) -> bool:
         """
         Execute order with microsecond-grade routing.
         """
@@ -61,10 +64,36 @@ class GOATExecutionEngine:
         # In a real GOAT system, we would pass pointers to pre-allocated shared memory
         return False # Placeholder until .so is compiled
 
-    def _execute_direct(self, order: OrderRequest) -> bool:
+    def _execute_direct(self, order: OrderRequest, max_retries: int = 1) -> bool:
+        attempt = 0
+        while attempt < max_retries:
+            try:
+                result = self.broker.place_order(order)
+                return result.get("status") in ["FILLED", "PENDING"]
+            except Exception as e:
+                attempt += 1
+                if attempt >= max_retries:
+                    logger.error("Execution failed", error=str(e), attempt=attempt, max_retries=max_retries)
+                    return False
+                backoff_seconds = 2 ** attempt
+                logger.info(
+                    "Execution attempt failed, retrying with backoff",
+                    attempt=attempt,
+                    max_retries=max_retries,
+                    backoff_seconds=backoff_seconds,
+                    error=str(e)
+                )
+                time.sleep(backoff_seconds)
+        return False
+
+    def sync_portfolio_state(self) -> Dict[str, float]:
+        """Return current open positions from the broker for pipeline synchronization."""
         try:
-            result = self.broker.place_order(order)
-            return result.get("status") in ["FILLED", "PENDING"]
+            return self.broker.get_positions()
         except Exception as e:
-            logger.error("Execution failed", error=str(e))
-            return False
+            logger.error("Failed to sync portfolio state from broker", error=str(e))
+            return {}
+
+
+# Default engine alias for legacy imports
+ExecutionEngine = GOATExecutionEngine

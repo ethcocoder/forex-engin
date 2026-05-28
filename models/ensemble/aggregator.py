@@ -256,6 +256,24 @@ class GOATEnsembleAggregator(BaseModel):
             feats.append(uncerts[k].reshape(-1, 1))
         return np.hstack(feats)
 
+    def enable_caching(self, X: Any) -> None:
+        """Warm up prediction data for later inference, compatible with legacy pipeline hooks."""
+        X_arr = np.asarray(X)
+        self._cache_enabled = True
+        self._cache_source_shape = X_arr.shape
+
+        cluster_preds, cluster_uncerts, _ = self._collect_meta_data(X_arr)
+        if cluster_preds:
+            self._cached_meta_features = self._build_meta_features(cluster_preds, cluster_uncerts)
+            logger.info(
+                "EnsembleAggregator caching enabled",
+                n_samples=X_arr.shape[0],
+                n_features=self._cached_meta_features.shape[1]
+            )
+        else:
+            self._cached_meta_features = None
+            logger.warning("EnsembleAggregator cache enabled but no sub-model predictions were available.")
+
 
 # Alias exported class name for legacy pipeline compatibility
 EnsembleAggregator = GOATEnsembleAggregator

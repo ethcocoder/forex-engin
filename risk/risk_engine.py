@@ -127,12 +127,13 @@ class AntiFragileRiskEngine(BaseRiskEngine):
         # Calculate dynamic stop-loss based on tail-risk (tighten in chaos)
         atr = market_data.get("atr", 0.001)
         sl_mult = 2.0 if vol_z_score < 2.0 else 1.0
+        base_price = market_data.get("price", market_data.get("close", market_data.get("mid_price", 0.0)))
         
         order = OrderRequest(
             pair=pair,
             direction=signal.direction,
             size=final_size,
-            stop_loss=market_data["price"] - (signal.direction * atr * sl_mult),
+            stop_loss=base_price - (signal.direction * atr * sl_mult),
             metadata={
                 "anti_fragile": True,
                 "vol_z_score": vol_z_score if 'vol_z_score' in locals() else 0,
@@ -149,3 +150,7 @@ class AntiFragileRiskEngine(BaseRiskEngine):
         if is_risk_reducing:
             return OrderRequest(pair=pair, direction=signal.direction, size=abs(current_exposure), order_type="MARKET")
         return None
+
+
+# Default risk engine alias used by scripts and pipeline imports
+RiskEngine = AntiFragileRiskEngine

@@ -184,3 +184,7 @@ class OrderFillSimulator:
             "fill_time": time.time(),
             "slippage_pips": 0.0
         }
+
+
+# Legacy alias for module compatibility
+FillSimulator = OrderFillSimulator

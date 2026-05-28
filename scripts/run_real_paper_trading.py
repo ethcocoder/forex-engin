@@ -1,5 +1,7 @@
 
 import os
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 import sys
 
 # 1. Parse threads count before imports to configure thread environments
@@ -115,7 +117,7 @@ class RealTimePipeline(TradingPipeline):
                     # Simulate raw packet transmission
                     self.kernel_bypass_driver.send_raw_packet(b"\x01\x02\x03\x04_EXIT_ORDER")
                 
-                self.execution_engine.execute(exit_order)
+                self.execution_engine.execute(exit_order, market_data)
                 self.trade_durations[pair] = 0
                 
                 # Check exit pnl
@@ -206,9 +208,9 @@ class RealTimePipeline(TradingPipeline):
                 logger.info("God Mode: Sending entry order via Kernel Bypass.")
                 # Simulate raw packet transmission
                 self.kernel_bypass_driver.send_raw_packet(b"\x01\x02\x03\x04_ENTRY_ORDER")
-                success = self.execution_engine.execute(order) # Still need to execute through broker for state management
+                success = self.execution_engine.execute(order, market_data) # Still need to execute through broker for state management
             else:
-                success = self.execution_engine.execute(order)
+                success = self.execution_engine.execute(order, market_data)
 
             if success:
                 logger.info("Real-Time order executed successfully", pair=pair, direction=order.direction, size=order.size)
@@ -232,9 +234,15 @@ class RealTimePipeline(TradingPipeline):
                     self.tracker.update_equity(cash_after, time.time())
 
 
-def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="data/EUR_USD_ticks.csv"):
-    logger.info("Initializing run context", threads_configured=threads_to_use)
-    logger.info("Starting High-Fidelity Real Paper Trading Simulator with God Mode...")
+def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="data/EUR_USD_ticks.csv", fast: bool = False):
+    if fast:
+        import logging
+        logging.getLogger().setLevel(logging.WARNING)
+        logger.info("Initializing run context (fast mode)", threads_configured=threads_to_use, fast=fast)
+        logger.info("Starting High-Fidelity Real Paper Trading Simulator (fast mode)...")
+    else:
+        logger.info("Initializing run context", threads_configured=threads_to_use)
+        logger.info("Starting High-Fidelity Real Paper Trading Simulator with God Mode...")
     
     # 1. Load Data
     features_df = pd.read_csv(features_path, index_col="timestamp", parse_dates=True)
@@ -293,10 +301,14 @@ def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="
     raw_feature_indices = [features_df.columns.get_loc(col) for col in features_cols]
     
     features_arr = features_df.copy().values
-    features_arr = np.nan_to_num(features_arr, nan=0.0, posinf=0.0, neginf=0.0)
-    
-    windows = sliding_window_view(features_arr, window_shape=(seq_len, features_arr.shape[1]))
-    X_master = np.copy(windows.squeeze(1))
+    features_arr = np.nan_to_num(features_arr, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
+
+    # Create sliding windows only when not running in fast low-memory mode
+    if not fast:
+        windows = sliding_window_view(features_arr, window_shape=(seq_len, features_arr.shape[1]))
+        X_master = np.copy(windows.squeeze(1))
+    else:
+        X_master = None
     
     # 5. Load all models and aggregator
     logger.info("Initializing Master Neural Ensemble Aggregator...")
@@ -326,10 +338,15 @@ def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="
     regime_wrapper = RegimeEnsembleWrapper(regime_model, regime_mean, regime_std, hmm_features, features_df, seq_len)
     rl_wrapper = RLEnsembleWrapper(rl_model, features_cols, regime_cols, features_df, scaler_mean, scaler_std, seq_len)
     
-    agg.register_model("temporal", temporal_wrapper, is_torch=True)
-    agg.register_model("maml", maml_wrapper, is_torch=True)
-    agg.register_model("regime", regime_wrapper, is_torch=False)
-    agg.register_model("rl", rl_wrapper, is_torch=False)
+    if fast:
+        # In fast mode keep only the most critical torch models to save memory
+        agg.register_model("temporal", temporal_wrapper, is_torch=True)
+        agg.register_model("maml", maml_wrapper, is_torch=True)
+    else:
+        agg.register_model("temporal", temporal_wrapper, is_torch=True)
+        agg.register_model("maml", maml_wrapper, is_torch=True)
+        agg.register_model("regime", regime_wrapper, is_torch=False)
+        agg.register_model("rl", rl_wrapper, is_torch=False)
     
     # Override from config
     ensemble_cfg = config.get("models", {}).get("ensemble", {})
@@ -338,7 +355,10 @@ def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="
         agg.signal_generator.direction_threshold = ensemble_cfg["direction_threshold"]
         
     logger.info("Warming up aggregator cache...")
-    agg.enable_caching(X_master)
+    if not fast and X_master is not None:
+        agg.enable_caching(X_master)
+    else:
+        logger.info("Fast mode: skipping aggregator cache warming.")
     
     # 6. Setup Live Trading Pipeline components
     initial_capital = 10000.0
@@ -366,12 +386,15 @@ def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="
     tracker = PerformanceTracker(initial_capital=initial_capital)
 
     # God Mode Component Initialization
-    synapse = DeepNeuralSynapse()
-    mesh = GlobalMeshArbitrage()
-    attacker = AttackerModel()
-    kernel_bypass_driver = KernelBypassDriver("sfn0") # Assuming 'sfn0' as the network device
-    kernel_bypass_driver.load_driver() # Load the driver once
-    
+    if not fast:
+        synapse = DeepNeuralSynapse()
+        mesh = GlobalMeshArbitrage()
+        attacker = AttackerModel()
+        kernel_bypass_driver = KernelBypassDriver("sfn0") # Assuming 'sfn0' as the network device
+        kernel_bypass_driver.load_driver() # Load the driver once
+    else:
+        synapse = mesh = attacker = kernel_bypass_driver = None
+
     pipeline = RealTimePipeline(
         ensemble=agg,
         risk_engine=risk_engine,
@@ -398,8 +421,12 @@ def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="
         timestamp = timestamps[i]
         close = closes[i]
         
-        # Format the window input
-        window = X_master[i - seq_len + 1]
+        # Format the window input (stream windows in fast mode to save memory)
+        if X_master is None:
+            start = i - seq_len + 1
+            window = features_arr[start: i + 1]
+        else:
+            window = X_master[i - seq_len + 1]
         X_input = np.expand_dims(window, axis=0)
         hour_ind = timestamp.hour / 23.0
         
@@ -417,6 +444,7 @@ def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="
         # pips into price deltas for fill price calculation.
         market_data = {
             "close": close,
+            "price": close,
             "mid_price": close,
             "spread_pips": 0.75 + np.random.rand() * 0.5, # Realistic institutional spreads
             "adv": 1000000.0,

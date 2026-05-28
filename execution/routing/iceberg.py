@@ -154,3 +154,7 @@ class IcebergRouter:
                     return True
             except Exception as e:
                 logger.error("Error polling position for iceberg fill check", error=str(e))
+
+
+# Legacy alias for compatibility with execution.routing imports
+IcebergOrder = IcebergRouter

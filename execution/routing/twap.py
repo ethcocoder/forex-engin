@@ -126,3 +126,7 @@ class TWAPRouter:
                 time.sleep(sleep_time)
                 
         logger.info("TWAP execution completed", pair=parent_order.pair)
+
+
+# Legacy alias for compatibility with execution.routing imports
+TWAPOrder = TWAPRouter
