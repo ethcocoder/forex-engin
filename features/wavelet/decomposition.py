@@ -58,7 +58,8 @@ class WaveletDecomposition(BaseFeature):
         
         # For each tick, decompose the rolling window of close prices to avoid lookahead bias
         for i in range(window - 1, n):
-            window_data = close[i - window + 1 : i + 1]
+            # Ensure window_data is writable to avoid 'buffer source array is read-only' in pywt
+            window_data = np.copy(close[i - window + 1 : i + 1])
             
             # Perform Discrete Wavelet Transform
             # coeff = [cA_L, cD_L, cD_L-1, ..., cD_1]
