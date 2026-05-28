@@ -1,3 +1,4 @@
+
 import os
 import sys
 
@@ -59,6 +60,12 @@ from monitoring.performance_tracker import PerformanceTracker
 
 from scripts.run_backtest import MAMLEnsembleWrapper, TemporalEnsembleWrapper, RegimeEnsembleWrapper, RLEnsembleWrapper
 
+# God Mode Imports
+from features.macro.deep_neural_synapse import DeepNeuralSynapse
+from execution.routing.global_mesh_arbitrage import GlobalMeshArbitrage
+from execution.hardware_offload.kernel_bypass_driver_integration import KernelBypassDriver
+from models.adversarial_ai.attacker_model import AttackerModel
+
 logger = structlog.get_logger()
 
 
@@ -67,11 +74,18 @@ class RealTimePipeline(TradingPipeline):
     Extends TradingPipeline to perform automated exits based on dynamic holding decay steps
     and logs realized trades to the PerformanceTracker.
     """
-    def __init__(self, ensemble, risk_engine, execution_engine, tracker, initial_capital=100000.0):
+    def __init__(self, ensemble, risk_engine, execution_engine, tracker, initial_capital=100000.0, 
+                 synapse=None, mesh=None, attacker=None, kernel_bypass_driver=None):
         super().__init__(ensemble, risk_engine, execution_engine, initial_capital=initial_capital)
         self.tracker = tracker
         self.trade_durations = {} # pair -> count of bars held
         self.max_hold_steps = 9   # Default signal decay steps
+        
+        # God Mode Components
+        self.synapse = synapse
+        self.mesh = mesh
+        self.attacker = attacker
+        self.kernel_bypass_driver = kernel_bypass_driver
         
     def process_tick(self, pair: str, X_window: np.ndarray, hour_ind: float, market_data: dict, current_bar_idx: int) -> None:
         # 1. Sync Portfolio State with broker
@@ -94,6 +108,13 @@ class RealTimePipeline(TradingPipeline):
                 direction = -1 if current_pos > 0 else 1
                 from risk.risk_engine import OrderRequest
                 exit_order = OrderRequest(pair=pair, direction=direction, size=abs(current_pos))
+                
+                # God Mode: Kernel Bypass for exit order
+                if self.kernel_bypass_driver:
+                    logger.info("God Mode: Sending exit order via Kernel Bypass.")
+                    # Simulate raw packet transmission
+                    self.kernel_bypass_driver.send_raw_packet(b"\x01\x02\x03\x04_EXIT_ORDER")
+                
                 self.execution_engine.execute(exit_order)
                 self.trade_durations[pair] = 0
                 
@@ -122,6 +143,44 @@ class RealTimePipeline(TradingPipeline):
             entry = getattr(broker, "entry_prices", {}).get(pair, getattr(broker, "avg_entry", {}).get(pair, market_data["close"]))
             unrealized = current_pos * (market_data["close"] - entry)
 
+        # God Mode: Deep Neural Synapse for enhanced features
+        if self.synapse:
+            # Simulate high-res data for synapse update (using current market data as a proxy)
+            # In a real scenario, this would be a stream of actual high-res data
+            synapse_data = pd.DataFrame({
+                "USD_10Y": [market_data.get("usd_10y", 0)],
+                "VIX": [market_data.get("vix", 0)],
+                "COPPER": [market_data.get("copper", 0)],
+                "GOLD": [market_data.get("gold", 0)],
+                "S&P500": [market_data.get("sp500", 0)]
+            })
+            self.synapse.update_correlations(synapse_data)
+            synapse_features = self.synapse.generate_synapse_features({"EURUSD": market_data["close"]})
+            # Augment market_data with synapse features
+            market_data.update(synapse_features)
+            logger.debug("God Mode: Synapse features generated.", features=synapse_features)
+
+        # God Mode: Global Mesh Arbitrage
+        if self.mesh:
+            # Simulate market state for arbitrage detection
+            # This would come from real-time feeds from different centers
+            simulated_market_state = {
+                "NY4": {"EURUSD": market_data["close"]},
+                "LD4": {"EURGBP": market_data["close"] * 0.85}, # Placeholder
+                "TY3": {"GBPUSD": market_data["close"] * 1.27}  # Placeholder
+            }
+            opportunities = self.mesh.detect_triangular_opportunity(simulated_market_state)
+            for opp in opportunities:
+                logger.info("God Mode: Triangular arbitrage opportunity detected!", opportunity=opp)
+                self.mesh.execute_mesh_trade(opp)
+
+        # God Mode: Adversarial AI Scan
+        if self.attacker:
+            current_strategy = {"type": "Ensemble_Trading", "threshold": 0.00005}
+            vulnerabilities = self.attacker.generate_adversarial_scenario(current_strategy)
+            if vulnerabilities:
+                logger.warning("God Mode: Adversarial AI detected vulnerabilities!", vulnerabilities=vulnerabilities)
+
         # 3. Predict AlphaSignal using our real master EnsembleAggregator!
         signal = self.ensemble.predict(
             X_window,
@@ -141,7 +200,16 @@ class RealTimePipeline(TradingPipeline):
         
         # 5. Execute Order
         if order is not None:
-            success = self.execution_engine.execute(order)
+            success = False
+            # God Mode: Kernel Bypass for entry order
+            if self.kernel_bypass_driver:
+                logger.info("God Mode: Sending entry order via Kernel Bypass.")
+                # Simulate raw packet transmission
+                self.kernel_bypass_driver.send_raw_packet(b"\x01\x02\x03\x04_ENTRY_ORDER")
+                success = self.execution_engine.execute(order) # Still need to execute through broker for state management
+            else:
+                success = self.execution_engine.execute(order)
+
             if success:
                 logger.info("Real-Time order executed successfully", pair=pair, direction=order.direction, size=order.size)
                 self.trade_durations[pair] = 0
@@ -166,7 +234,7 @@ class RealTimePipeline(TradingPipeline):
 
 def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="data/EUR_USD_ticks.csv"):
     logger.info("Initializing run context", threads_configured=threads_to_use)
-    logger.info("Starting High-Fidelity Real Paper Trading Simulator...")
+    logger.info("Starting High-Fidelity Real Paper Trading Simulator with God Mode...")
     
     # 1. Load Data
     features_df = pd.read_csv(features_path, index_col="timestamp", parse_dates=True)
@@ -296,13 +364,24 @@ def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="
     execution_engine = ExecutionEngine(broker=broker)
     
     tracker = PerformanceTracker(initial_capital=initial_capital)
+
+    # God Mode Component Initialization
+    synapse = DeepNeuralSynapse()
+    mesh = GlobalMeshArbitrage()
+    attacker = AttackerModel()
+    kernel_bypass_driver = KernelBypassDriver("sfn0") # Assuming 'sfn0' as the network device
+    kernel_bypass_driver.load_driver() # Load the driver once
     
     pipeline = RealTimePipeline(
         ensemble=agg,
         risk_engine=risk_engine,
         execution_engine=execution_engine,
         tracker=tracker,
-        initial_capital=initial_capital
+        initial_capital=initial_capital,
+        synapse=synapse,
+        mesh=mesh,
+        attacker=attacker,
+        kernel_bypass_driver=kernel_bypass_driver
     )
     
     # 7. Real-time Tick Ingestion Simulation Loop
@@ -342,7 +421,9 @@ def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="
             "spread_pips": 0.75 + np.random.rand() * 0.5, # Realistic institutional spreads
             "adv": 1000000.0,
             "pip_value": 0.0001,  # Price per pip for EURUSD (4th decimal place)
-            "volatility": rolling_vol
+            "volatility": rolling_vol,
+            # Add placeholder for God Mode features that might be used by synapse
+            "usd_10y": 0.0, "vix": 0.0, "copper": 0.0, "gold": 0.0, "sp500": 0.0
         }
         
         # Feed tick update to simulated broker
@@ -378,6 +459,10 @@ def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="
     print("="*80)
     print(tracker.generate_tear_sheet())
     print("="*80 + "\n")
+
+    # Unload kernel bypass driver
+    if kernel_bypass_driver:
+        kernel_bypass_driver.unload_driver()
 
 
 if __name__ == "__main__":
