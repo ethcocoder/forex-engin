@@ -1,182 +1,131 @@
-# Google Colab T4 GPU Training Instructions
+# 🚀 Google Colab "God Mode" Forex Engine Training Guide
 
-This guide provides step-by-step instructions for setting up and training the **Forex Neural Trading Engine** on Google Colab using a free T4 GPU.
+This guide provides the ultimate step-by-step instructions for setting up, training, and running the **"God Mode" Forex Neural Trading Engine** on Google Colab using a T4 GPU. This implementation features nanosecond execution simulations, deep neural synapses, and adversarial AI hardening.
 
-## Prerequisites
-* A Google Account
-* A copy of this repository pushed to your GitHub
+## 🛠️ 1. Environment Setup
 
----
-
-## 1. Setup the Colab Notebook
-
+### Enable T4 GPU
 1. Open [Google Colab](https://colab.research.google.com/).
-2. Click **File** > **New notebook**.
-3. **Enable the T4 GPU**:
-   - Go to **Runtime** > **Change runtime type**.
-   - Under **Hardware accelerator**, select **T4 GPU**.
-   - Click **Save**.
+2. **Runtime** > **Change runtime type** > **T4 GPU** > **Save**.
 
-To verify the GPU is active, run the following command in the first cell:
+### Verify GPU Status
 ```python
 !nvidia-smi
 ```
 
 ---
 
-## 2. Clone the Repository
+## 📂 2. Repository & Dependencies
 
-Clone your repository into the Colab environment and checkout the target branch. Run this in a new cell:
-
+### Clone the "God Mode" Branch
 ```python
 import os
 
-# Clone the repository branch
-!git clone -b code-analysis-review-89c0e-2854086098776759399 https://github.com/ethcocoder/forex-engin.git
+# Clone the elite-forex branch
+!git clone -b elite-forex https://github.com/ethcocoder/forex-engin.git
 %cd forex-engin
 ```
 
----
-
-## 3. Install Dependencies
-
-Install the required Python packages for the neural engine and its dependencies.
-
+### Install Production Dependencies
 ```python
-# Install required libraries
+# Install core requirements
 !pip install -r requirements.txt
 
-# Install TimescaleDB, Kafka, and Redis client dependencies (since they are in requirements)
-# For local DB testing without Docker inside Colab, you can use SQLite.
+# Install data & utility dependencies
+!pip install yfinance structlog
 ```
 
-If you have specific C++ extensions (like Kalman, RL, and MAML speedups) that need to be compiled on the Linux T4 instance, run the helper script:
-
+### Compile High-Performance C++ Speedups
 ```python
-# Compile all C++ speedups (Kalman wavelets, RL agent, and MAML speedups)
+# Compile Kalman wavelets, RL agent, and MAML meta-learner speedups
 !python scripts/compile_speedups.py
 ```
 
 ---
 
-## 4. Download Training Data
+## 📊 3. Data Acquisition & Feature Engineering
 
-To train the models on real market behavior without needing any API tokens, you can use the built-in Yahoo Finance downloader. This downloads historical Forex data completely free:
-
+### Autonomous Data Sync
+Download 20 years of historical data for regime detection and 2 years of hourly data for signal tuning.
 ```python
-# Download 2 years of historical data from Yahoo Finance (Requires NO API key)
-!python scripts/download_data.py --pair EUR_USD --years 5 --source yfinance --output data/EUR_USD_ticks.csv
+# Download historical data (No API key required)
+!python scripts/download_data.py
 ```
 
-*(Note: If you eventually want extremely dense 1-minute tick data for 5+ years, you can get a free OANDA Practice Token and run it with `--source oanda --token YOUR_TOKEN`).*
-
----
-
-## 5. Run the Training Pipeline
-
-The trading engine requires models to be trained sequentially since they rely on each other's outputs.
-
-### Step 5A: Generate Features
-Before training the Neural Engine, you must convert the raw tick data into mathematical features (e.g., wavelets, volatility estimators, microstructure spreads).
-
+### Feature Generation (Neural Synapse Layer)
+Convert raw ticks into high-dimensional features including wavelets, volatility estimators, and microstructure spreads.
 ```python
-# Generate technical & microstructure features from the raw data
+# Prepare data for processing
+!cp data/raw/EURUSD_H1_2y.csv data/EUR_USD_ticks.csv
+!sed -i 's/Datetime/timestamp/g; s/Close/close/g; s/Open/open/g; s/High/high/g; s/Low/low/g; s/Volume/volume/g' data/EUR_USD_ticks.csv
+
+# Generate the feature set
 !python scripts/generate_features.py --input data/EUR_USD_ticks.csv --output data/EUR_USD_features.csv
 ```
 
-### Step 5B: Train the Temporal Neural Network
-Once features are generated, you can feed them into the temporal neural network (TCN + Transformer). 
-By default, this will look at the past 60 hours of features (`--seq_len 60`) to predict the return of the next 1 hour (`--horizon 1`).
+---
 
+## 🧠 4. Sequential Model Training
+
+The engine requires sequential training as the master ensemble aggregates outputs from all specialized layers.
+
+| Step | Command | Description |
+| :--- | :--- | :--- |
+| **A. Temporal** | `!python scripts/train_temporal.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv --epochs 20` | Trains TCN + Transformer for return prediction. |
+| **B. Regime** | `!python scripts/train_regime.py --features data/EUR_USD_features.csv --epochs 15` | Unsupervised HMM + LSTM for market state classification. |
+| **C. RL Agent** | `!python scripts/train_rl.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv --timesteps 50000` | PPO agent with volatility curriculum learning. |
+| **D. Meta-Learner** | `!python scripts/train_meta.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv --epochs 50` | MAML for rapid adaptation to new market conditions. |
+| **E. Ensemble** | `!python scripts/train_ensemble.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv` | LightGBM stacking layer to unify all predictions. |
+
+---
+
+## ⚡ 5. Execution & "God Mode" Simulation
+
+### Run Integrated Real-Time Paper Trading
+This script executes the full "God Mode" pipeline, including Global Mesh Arbitrage, Kernel-Bypass simulations, and Deep Neural Synapse integration.
 ```python
-# Train the Temporal Fusion Model
-!python scripts/train_temporal.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv --epochs 10 --batch_size 64
-
-# (Optional) Run walk-forward cross-validation first to verify out-of-sample performance
-# !python scripts/train_temporal.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv --cv
+# Execute the integrated God Mode trading loop
+!python scripts/run_real_paper_trading.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv
 ```
 
-### Step 5C: Train the Market Regime Classification Ensemble
-Next, train the unsupervised market regime ensemble (Gaussian HMM + LSTM Sequence Classifier). This maps volatile/quiet market states to pseudo-labels and trains the LSTM to predict them.
-
+### Run God Mode Stress Test
+Verify the engine's performance under extreme volatility (e.g., Fed Rate Hike scenarios).
 ```python
-# Train the Regime Model Ensemble
-!python scripts/train_regime.py --features data/EUR_USD_features.csv --epochs 10
-
-# (Optional) Run walk-forward cross-validation to assess LSTM-HMM alignment consistency
-# !python scripts/train_regime.py --features data/EUR_USD_features.csv --epochs 10 --cv
-```
-
-### Step 5D: Train the Reinforcement Learning Agent
-Now, compile the RL speedups and train the Reinforcement Learning Agent (PPO model) using the volatility curriculum learning trainer. This agent uses both technical features and predicted market regimes to execute optimized trades.
-
-```python
-# Train the PPO agent
-!python scripts/train_rl.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv --timesteps 30000
-```
-
-### Step 5E: Train the Model-Agnostic Meta-Learner (MAML)
-Train the Model-Agnostic Meta-Learner. MAML learns a general initialization parameter set that can rapidly adapt to new market regimes or few-shot environments in just 5 gradient steps.
-
-```python
-# Train MAML Model (default 50 epochs)
-!python scripts/train_meta.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv --epochs 50
-```
-
-### Step 5F: Train the Ensemble Aggregator (Stacking Layer)
-Train the master `EnsembleAggregator` which trains a LightGBM stacking layer to unify predictions from the Temporal Model, Regime Ensemble, RL Agent, and MAML Model.
-
-```python
-# Train the Ensemble Stacker
-!python scripts/train_ensemble.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv
-```
-
-### Step 5G: Run the Backtest Simulation
-Verify out-of-sample performance by running the backtesting engines (both Vectorized and Event-Driven).
-
-```python
-# Run both Vectorized and Event-Driven Backtests
-!python scripts/run_backtest.py --features data/EUR_USD_features.csv --raw data/EUR_USD_ticks.csv --mode both
+!python scripts/god_mode_stress_test.py
 ```
 
 ---
 
-## 6. Exporting Trained Weights
+## 💾 6. Exporting Weights & Persistence
 
-Once training finishes, Colab will reset when you close the browser. Ensure you download the `.pt`, `.pkl`, and ensemble metadata/model weights files!
-
-```python
-from google.colab import files
-
-# Example of downloading the saved weights, scalers, and ensemble files
-files.download("saved_models/temporal_model.pt")
-files.download("saved_models/feature_scaler.pkl")
-files.download("saved_models/regime_ensemble.pkl")
-files.download("saved_models/regime_ensemble.pkl.hmm")
-files.download("saved_models/regime_ensemble.pkl.lstm")
-files.download("saved_models/regime_feature_scaler.pkl")
-files.download("saved_models/rl_agent_ppo.zip")
-files.download("saved_models/maml_model.pt")
-
-# Download Ensemble Aggregator files
-files.download("saved_models/ensemble_aggregator.meta")
-files.download("saved_models/ensemble_aggregator.lgbm")
-files.download("saved_models/ensemble_aggregator.bma")
-```
-
-Alternatively, you can mount your Google Drive to save weights automatically:
-
+### Mount Google Drive
 ```python
 from google.colab import drive
 drive.mount('/content/drive')
 
-# Copy weights to Google Drive
-!cp -r saved_models/ /content/drive/MyDrive/forex_weights/
+# Backup all trained models and scalers
+!cp -r saved_models/ /content/drive/MyDrive/forex_god_mode_weights/
+```
+
+### Direct Download
+```python
+from google.colab import files
+import glob
+
+for weight_file in glob.glob("saved_models/*.*"):
+    files.download(weight_file)
 ```
 
 ---
 
-## 💡 Performance Tips for T4
-* **PyTorch AMP**: Automatic Mixed Precision is enabled by default in the architecture, which doubles T4 throughput.
-* **Batch Size**: The T4 has 16GB of VRAM. You can safely increase `--batch_size` to `128` or `256` for the Temporal models without out-of-memory errors.
-* **Colab Disconnects**: Add a small JavaScript loop in your browser console to prevent Colab from disconnecting during multi-hour RL training sessions.
+## 💡 Pro Tips for T4 GPU
+* **Mixed Precision**: The engine uses `torch.cuda.amp` for 2x faster training on T4.
+* **Thread Optimization**: Use `--threads=8` to maximize CPU throughput during feature generation.
+* **Keep-Alive**: Run this in the browser console (F12) to prevent timeouts:
+  ```javascript
+  function ClickConnect(){
+    console.log("Working"); 
+    document.querySelector("colab-connect-button").click() 
+  }
+  setInterval(ClickConnect, 60000)
+  ```
