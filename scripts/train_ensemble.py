@@ -317,15 +317,22 @@ def main():
     agg.register_model("maml", maml_wrapper, is_torch=True)
     agg.register_model("regime", regime_wrapper, is_torch=False)
     agg.register_model("rl", rl_wrapper, is_torch=False)
-    
-    logger.info("Training LightGBM stacking meta-model on predictions (skip_oos=True for speed)...")
+
+    logger.info(
+        "Beginning EnsembleAggregator fit",
+        X_shape=X_valid.shape,
+        y_shape=y_valid.shape,
+        sub_models=list(agg.sub_models.keys()),
+        skip_oos=True
+    )
     agg.fit(X_valid, y_valid, skip_oos=True)
-    
+
     # Save the aggregator state
     logger.info(f"Saving EnsembleAggregator state to {args.output}...")
     agg.save(args.output)
-    
+
     logger.info("EnsembleAggregator trained and saved successfully!")
+
 
 if __name__ == "__main__":
     main()

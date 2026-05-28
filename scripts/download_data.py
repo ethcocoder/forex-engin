@@ -6,6 +6,7 @@ import structlog
 from datetime import datetime, timedelta
 import yfinance as yf
 import os
+from typing import Any
 
 logger = structlog.get_logger()
 
