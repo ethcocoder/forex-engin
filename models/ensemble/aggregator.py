@@ -2,6 +2,7 @@ import os
 import pickle
 from typing import Any, Dict, List, Optional
 import numpy as np
+import pandas as pd
 import torch
 from sklearn.preprocessing import StandardScaler
 import structlog
@@ -46,6 +47,7 @@ class GOATEnsembleAggregator(BaseModel):
         self.signal_generator = SignalGenerator()
         self.n_mc_passes = self.mc_estimator.n_forward_passes
         self.bma = BayesianModelAverager(model_names=[])
+        self.meta_feature_names: Optional[List[str]] = None
         
         logger.info("GOAT EnsembleAggregator initialized", clusters=list(self.clusters.keys()))
 
@@ -73,15 +75,19 @@ class GOATEnsembleAggregator(BaseModel):
         if not cluster_preds:
             raise ValueError("No sub-model predictions available. Register sub-models before training.")
 
+        meta_features = self._build_meta_features(cluster_preds, cluster_uncerts)
+        self.meta_feature_names = self._generate_meta_feature_names(cluster_preds)
+
         logger.info(
             "Meta-data collection complete",
             clusters=list(cluster_preds.keys()),
-            n_features=meta_features.shape[1] if (meta_features := self._build_meta_features(cluster_preds, cluster_uncerts)).ndim > 1 else 1,
+            n_features=meta_features.shape[1] if meta_features.ndim > 1 else 1,
             n_samples=n_samples
         )
 
-        self.scaler.fit(meta_features)
-        meta_scaled = self.scaler.transform(meta_features)
+        meta_features_df = pd.DataFrame(meta_features, columns=self.meta_feature_names)
+        self.scaler.fit(meta_features_df)
+        meta_scaled = pd.DataFrame(self.scaler.transform(meta_features_df), columns=self.meta_feature_names)
 
         ensemble_cfg = self.config.get("ensemble", {}) if isinstance(self.config, dict) else {}
         n_splits = int(ensemble_cfg.get("stacking_n_splits", 5))
@@ -130,8 +136,14 @@ class GOATEnsembleAggregator(BaseModel):
         meta_features = self._build_meta_features(cluster_preds, cluster_uncerts)
         avg_uncertainty = float(np.mean([np.mean(v) for v in cluster_uncerts.values()]))
 
+        if self.meta_feature_names is None:
+            self.meta_feature_names = self._generate_meta_feature_names(cluster_preds)
+
         if avg_uncertainty < self.uncertainty_threshold and self.stacker is not None:
-            final_pred = self.stacker.predict(self.scaler.transform(meta_features))
+            meta_scaled = self.scaler.transform(meta_features)
+            if self.meta_feature_names is not None:
+                meta_scaled = pd.DataFrame(meta_scaled, columns=self.meta_feature_names)
+            final_pred = self.stacker.predict(meta_scaled)
             path = "STACKER"
         else:
             final_pred = np.mean(list(cluster_preds.values()), axis=0)
@@ -169,6 +181,7 @@ class GOATEnsembleAggregator(BaseModel):
             "clusters": self.clusters,
             "signal_generator": self.signal_generator,
             "_torch_models": self._torch_models,
+            "meta_feature_names": self.meta_feature_names,
         }
         with open(path, "wb") as f:
             pickle.dump(state, f)
@@ -198,6 +211,7 @@ class GOATEnsembleAggregator(BaseModel):
         self.clusters = state.get("clusters", self.clusters)
         self.signal_generator = state.get("signal_generator", self.signal_generator)
         self._torch_models = state.get("_torch_models", self._torch_models)
+        self.meta_feature_names = state.get("meta_feature_names", self.meta_feature_names)
         self.sub_models = {}
         self.bma = BayesianModelAverager(model_names=list(self.sub_models.keys()))
 
@@ -248,6 +262,13 @@ class GOATEnsembleAggregator(BaseModel):
         if model_name in self._torch_models:
             return np.random.uniform(0.1, 0.4, X.shape[0])
         return np.ones(X.shape[0]) * 0.5
+
+    def _generate_meta_feature_names(self, preds: Dict[str, np.ndarray]) -> List[str]:
+        names: List[str] = []
+        for k in sorted(preds.keys()):
+            names.append(f"{k}_mean")
+            names.append(f"{k}_uncertainty")
+        return names
 
     def _build_meta_features(self, preds: Dict[str, np.ndarray], uncerts: Dict[str, np.ndarray]) -> np.ndarray:
         feats: List[np.ndarray] = []

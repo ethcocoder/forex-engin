@@ -23,14 +23,28 @@ class DeepNeuralSynapse:
         if high_res_data.empty:
             return
 
+        if not hasattr(self, "history") or self.history is None:
+            self.history = high_res_data[self.assets].copy()
+        else:
+            self.history = pd.concat([self.history, high_res_data[self.assets]], ignore_index=True)
+        
+        if len(self.history) > 100:
+            self.history = self.history.iloc[-100:]
+
         # Calculate dynamic correlations
-        self.correlation_matrix = high_res_data[self.assets].corr(method='pearson')
+        if len(self.history) >= 2:
+            corr = self.history.corr(method='pearson')
+            corr = corr.fillna(0.0)
+            for asset in self.assets:
+                corr.loc[asset, asset] = 1.0
+            self.correlation_matrix = corr
+        else:
+            self.correlation_matrix = pd.DataFrame(
+                np.eye(len(self.assets)), index=self.assets, columns=self.assets
+            )
         
         # Calculate "Synapse Weights" - non-linear influence scores
-        # This is a simplified representation of a neural network's attention mechanism
         for asset in self.assets:
-            # Influence score based on volatility and absolute correlation with a target (e.g., EUR/USD)
-            # This would be learned by a deep neural network in a full implementation
             self.synapse_weights[asset] = np.abs(self.correlation_matrix[asset]).mean()
 
     def generate_synapse_features(self, current_prices: Dict[str, float]) -> Dict[str, float]:

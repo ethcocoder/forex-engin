@@ -38,6 +38,7 @@ torch.set_num_threads(threads_to_use)
 torch.set_num_interop_threads(1)
 torch.set_grad_enabled(False)
 
+import logging
 import structlog
 from datetime import datetime
 
@@ -127,12 +128,13 @@ class RealTimePipeline(TradingPipeline):
                     realized_pnl = cash_after - cash_before
                     return_pct = realized_pnl / cash_before
                     self.update_pnl(realized_pnl, return_pct)
+                    slippage = getattr(self.execution_engine, "last_execution_result", {}).get("slippage_pips", 0.0)
                     self.tracker.log_trade(
                         pair=pair,
                         direction=direction,
                         size=abs(pos_before - pos_after),
                         pnl=realized_pnl,
-                        slippage_pips=0.0
+                        slippage_pips=slippage
                     )
                     self.tracker.update_equity(cash_after, time.time())
                 return
@@ -197,6 +199,10 @@ class RealTimePipeline(TradingPipeline):
         if signal.direction == 0:
             return  # No entry action
 
+        # Prevent adding to an existing position in the same direction to avoid timer resets
+        if current_pos != 0.0 and np.sign(current_pos) == signal.direction:
+            return
+
         # 4. Gate signal through Risk Engine
         order = self.risk_engine.gate(signal, pair, self.portfolio_state, market_data)
         
@@ -224,20 +230,26 @@ class RealTimePipeline(TradingPipeline):
                     realized_pnl = cash_after - cash_before
                     return_pct = realized_pnl / cash_before
                     self.update_pnl(realized_pnl, return_pct)
+                    slippage = getattr(self.execution_engine, "last_execution_result", {}).get("slippage_pips", 0.0)
                     self.tracker.log_trade(
                         pair=pair,
                         direction=order.direction,
                         size=abs(pos_before - pos_after),
                         pnl=realized_pnl,
-                        slippage_pips=0.0
+                        slippage_pips=slippage
                     )
                     self.tracker.update_equity(cash_after, time.time())
 
 
-def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="data/EUR_USD_ticks.csv", fast: bool = False):
+def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="data/EUR_USD_ticks.csv", fast: bool = False, god_mode: bool = True):
     if fast:
-        import logging
-        logging.getLogger().setLevel(logging.WARNING)
+        logging.basicConfig(level=logging.INFO, force=True)
+        logging.getLogger().setLevel(logging.INFO)
+        structlog.configure(
+            logger_factory=structlog.stdlib.LoggerFactory(),
+            wrapper_class=structlog.stdlib.BoundLogger,
+            cache_logger_on_first_use=True
+        )
         logger.info("Initializing run context (fast mode)", threads_configured=threads_to_use, fast=fast)
         logger.info("Starting High-Fidelity Real Paper Trading Simulator (fast mode)...")
     else:
@@ -385,15 +397,22 @@ def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="
     
     tracker = PerformanceTracker(initial_capital=initial_capital)
 
-    # God Mode Component Initialization
-    if not fast:
-        synapse = DeepNeuralSynapse()
-        mesh = GlobalMeshArbitrage()
-        attacker = AttackerModel()
-        kernel_bypass_driver = KernelBypassDriver("sfn0") # Assuming 'sfn0' as the network device
-        kernel_bypass_driver.load_driver() # Load the driver once
+    # God Mode Component Initialization (disabled by default for accuracy)
+    if god_mode and not fast:
+        try:
+            synapse = DeepNeuralSynapse()
+            mesh = GlobalMeshArbitrage()
+            attacker = AttackerModel()
+            kernel_bypass_driver = KernelBypassDriver("sfn0")
+            kernel_bypass_driver.load_driver()
+            logger.info("God Mode components initialized (opt-in mode)")
+        except Exception as e:
+            logger.warning("God Mode initialization failed, disabling", error=str(e))
+            synapse = mesh = attacker = kernel_bypass_driver = None
     else:
         synapse = mesh = attacker = kernel_bypass_driver = None
+        if not fast:
+            logger.info("God Mode disabled (use --god-mode to enable)")
 
     pipeline = RealTimePipeline(
         ensemble=agg,
@@ -475,11 +494,22 @@ def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="
                         open_positions=broker.get_positions())
             tracker.update_equity(mtm_equity, timestamp.timestamp())
             
-    # Final mark-to-market
+    # Final mark-to-market and logging open positions as final trades
     final_equity = broker.cash
-    for pos_pair, pos_size in broker.positions.items():
+    for pos_pair, pos_size in list(broker.positions.items()):
         entry_px = broker.entry_prices.get(pos_pair, closes[-1])
-        final_equity += pos_size * (closes[-1] - entry_px)
+        realized_pnl = pos_size * (closes[-1] - entry_px)
+        final_equity += realized_pnl
+        
+        # Log the final trade to the tracker so it counts in performance metrics
+        direction = 1 if pos_size > 0 else -1
+        tracker.log_trade(
+            pair=pos_pair,
+            direction=direction,
+            size=abs(pos_size),
+            pnl=realized_pnl,
+            slippage_pips=0.0
+        )
     
     tracker.update_equity(final_equity, timestamps[-1].timestamp())
     print("\n" + "="*80)
@@ -499,6 +529,8 @@ if __name__ == "__main__":
     parser.add_argument("--features", type=str, default="data/EUR_USD_features.csv", help="Path to features CSV")
     parser.add_argument("--raw", type=str, default="data/EUR_USD_ticks.csv", help="Path to raw ticks CSV")
     parser.add_argument("--threads", type=int, default=None, help="Number of CPU threads to use (default: CPU cores - 1)")
+    parser.add_argument("--fast", action="store_true", help="Run in low-memory fast mode (reduced fidelity)")
+    parser.add_argument("--disable-god-mode", action="store_true", help="Disable God Mode components (synapse, mesh, attacker)")
     args = parser.parse_args()
     
-    run_real_paper_trading(features_path=args.features, raw_path=args.raw)
+    run_real_paper_trading(features_path=args.features, raw_path=args.raw, fast=args.fast, god_mode=not args.disable_god_mode)

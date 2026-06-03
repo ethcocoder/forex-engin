@@ -46,6 +46,7 @@ class GOATExecutionEngine:
         """
         Execute order with microsecond-grade routing.
         """
+        self.last_execution_result = None
         start_time = time.perf_counter_ns()
         
         # 1. Fast Path (C++ if available)
@@ -69,6 +70,7 @@ class GOATExecutionEngine:
         while attempt < max_retries:
             try:
                 result = self.broker.place_order(order)
+                self.last_execution_result = result
                 return result.get("status") in ["FILLED", "PENDING"]
             except Exception as e:
                 attempt += 1
