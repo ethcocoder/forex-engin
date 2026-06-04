@@ -38,11 +38,18 @@ def compile_target(cpp_source_rel: str, lib_name_base: str) -> bool:
         compiler,
         "-O3",
         "-shared",
-        "-fPIC",
+        "-fPIC"
+    ]
+    
+    # Statically link libgcc and libstdc++ on Windows to prevent DLL load dependency issues
+    if sys.platform.startswith("win"):
+        compile_cmd.extend(["-static-libgcc", "-static-libstdc++"])
+        
+    compile_cmd.extend([
         cpp_source,
         "-o",
         cpp_dest
-    ]
+    ])
     
     try:
         # Run compilation command
@@ -81,7 +88,10 @@ def compile_all() -> bool:
     targets = [
         ("features/wavelet/kalman_speedups.cpp", "kalman_speedups"),
         ("models/rl_agent/rl_speedups.cpp", "rl_speedups"),
-        ("models/meta_learner/maml_speedups.cpp", "maml_speedups")
+        ("models/meta_learner/maml_speedups.cpp", "maml_speedups"),
+        ("execution/execution_speedups.cpp", "execution_speedups"),
+        ("risk/risk_speedups.cpp", "risk_speedups"),
+        ("infrastructure/spsc_ring_buffer.cpp", "spsc_ring_buffer")
     ]
     
     all_success = True

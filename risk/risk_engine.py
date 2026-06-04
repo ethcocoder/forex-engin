@@ -1,3 +1,6 @@
+import os
+import sys
+import ctypes
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -7,6 +10,29 @@ import structlog
 from models.ensemble.signal_generator import AlphaSignal
 
 logger = structlog.get_logger()
+
+# -------------------------------------------------------------------------
+# Dynamic C++ Shared Library Loading & Type Binding
+# -------------------------------------------------------------------------
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_ext = ".dll" if sys.platform.startswith("win") else ".dylib" if sys.platform.startswith("darwin") else ".so"
+_lib_path = os.path.join(_current_dir, f"risk_speedups{_ext}")
+
+_risk_lib = None
+if os.path.exists(_lib_path):
+    try:
+        kwargs = {}
+        if sys.platform.startswith("win"):
+            kwargs["winmode"] = 0
+        _risk_lib = ctypes.CDLL(_lib_path, **kwargs)
+        _risk_lib.calculate_vol_z_score.argtypes = [
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.c_int
+        ]
+        _risk_lib.calculate_vol_z_score.restype = ctypes.c_double
+        logger.info("Successfully loaded C++ Risk Engine speedups shared library", path=_lib_path)
+    except Exception as e:
+        logger.warning("Failed to load C++ Risk Engine speedups library. Falling back to pure Python.", error=str(e))
 
 @dataclass
 class PortfolioState:
@@ -87,10 +113,23 @@ class AntiFragileRiskEngine(BaseRiskEngine):
 
         # 2. Tail Risk (Unknown Unknown) Detection
         # Calculate rolling volatility Z-score to detect 'Black Swan' regimes
-        if len(portfolio_state.historical_returns) > 50:
-            recent_vol = np.std(portfolio_state.historical_returns[-20:])
-            hist_vol = np.std(portfolio_state.historical_returns)
-            vol_z_score = (recent_vol - hist_vol) / (np.std(np.diff(portfolio_state.historical_returns)) + 1e-6)
+        vol_z_score = 0.0
+        n_returns = len(portfolio_state.historical_returns)
+        if n_returns > 50:
+            if _risk_lib is not None:
+                try:
+                    returns_arr = np.ascontiguousarray(portfolio_state.historical_returns, dtype=np.float64)
+                    returns_ptr = returns_arr.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
+                    vol_z_score = _risk_lib.calculate_vol_z_score(returns_ptr, ctypes.c_int(n_returns))
+                except Exception as e:
+                    logger.error("C++ Risk Z-score execution failed, falling back to Python", error=str(e))
+                    recent_vol = np.std(portfolio_state.historical_returns[-20:])
+                    hist_vol = np.std(portfolio_state.historical_returns)
+                    vol_z_score = (recent_vol - hist_vol) / (np.std(np.diff(portfolio_state.historical_returns)) + 1e-6)
+            else:
+                recent_vol = np.std(portfolio_state.historical_returns[-20:])
+                hist_vol = np.std(portfolio_state.historical_returns)
+                vol_z_score = (recent_vol - hist_vol) / (np.std(np.diff(portfolio_state.historical_returns)) + 1e-6)
             
             if vol_z_score > self.tail_risk_threshold:
                 logger.critical("BLACK SWAN DETECTED: Extreme volatility regime shift.", z_score=vol_z_score)

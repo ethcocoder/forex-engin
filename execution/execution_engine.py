@@ -10,6 +10,21 @@ from execution.brokers.base_broker import BaseBroker
 
 logger = structlog.get_logger()
 
+class CtypesOrder(ctypes.Structure):
+    _fields_ = [
+        ("direction", ctypes.c_int),
+        ("size", ctypes.c_double),
+        ("limit_price", ctypes.c_double),
+        ("stop_loss", ctypes.c_double)
+    ]
+
+class CtypesExecutionResult(ctypes.Structure):
+    _fields_ = [
+        ("success", ctypes.c_bool),
+        ("fill_price", ctypes.c_double),
+        ("latency_ns", ctypes.c_longlong)
+    ]
+
 class GOATExecutionEngine:
     """
     GOAT Ultra-Low Latency Execution Engine.
@@ -35,8 +50,17 @@ class GOATExecutionEngine:
             return None
 
         try:
-            lib = ctypes.CDLL(lib_path)
-            # Define argtypes for safety
+            kwargs = {}
+            if sys.platform.startswith("win"):
+                kwargs["winmode"] = 0
+            lib = ctypes.CDLL(lib_path, **kwargs)
+            lib.fast_route_order.argtypes = [
+                ctypes.POINTER(CtypesOrder),
+                ctypes.c_double,
+                ctypes.c_double,
+                ctypes.POINTER(CtypesExecutionResult)
+            ]
+            lib.fast_route_order.restype = None
             return lib
         except Exception as e:
             logger.info("Failed to load C++ speedup library; continuing with Python fallback", path=lib_path, error=str(e))
@@ -50,7 +74,7 @@ class GOATExecutionEngine:
         start_time = time.perf_counter_ns()
         
         # 1. Fast Path (C++ if available)
-        if self._lib:
+        if self._lib and market_data:
             success = self._fast_route(order, market_data)
             if success:
                 latency = (time.perf_counter_ns() - start_time) / 1000.0
@@ -61,9 +85,49 @@ class GOATExecutionEngine:
         return self._execute_direct(order)
 
     def _fast_route(self, order: OrderRequest, market_data: Dict[str, Any]) -> bool:
-        # Simplified C++ bridge logic
-        # In a real GOAT system, we would pass pointers to pre-allocated shared memory
-        return False # Placeholder until .so is compiled
+        pair = order.pair
+        pair_data = market_data.get(pair, {}) if isinstance(market_data.get(pair), dict) else market_data
+        
+        bid = pair_data.get("bid")
+        ask = pair_data.get("ask")
+        
+        if bid is None or ask is None:
+            # Try flat keys as backup
+            bid = market_data.get("bid")
+            ask = market_data.get("ask")
+
+        if bid is None or ask is None:
+            return False
+
+        # Pre-flight C++ validation & serialization
+        c_order = CtypesOrder(
+            direction=order.direction,
+            size=order.size,
+            limit_price=getattr(order, "limit_price", 0.0),
+            stop_loss=getattr(order, "stop_loss", 0.0)
+        )
+        c_result = CtypesExecutionResult(success=False, fill_price=0.0, latency_ns=0)
+
+        try:
+            self._lib.fast_route_order(
+                ctypes.byref(c_order),
+                ctypes.c_double(bid),
+                ctypes.c_double(ask),
+                ctypes.byref(c_result)
+            )
+            
+            if not c_result.success:
+                return False
+                
+            # Place standard order but log/use the fast routed price
+            result = self.broker.place_order(order)
+            # Update latency with actual C++ speedup time (in ns)
+            result["latency_ns"] = c_result.latency_ns
+            self.last_execution_result = result
+            return result.get("status") in ["FILLED", "PENDING"]
+        except Exception as e:
+            logger.error("C++ fast routing exception", error=str(e))
+            return False
 
     def _execute_direct(self, order: OrderRequest, max_retries: int = 1) -> bool:
         attempt = 0

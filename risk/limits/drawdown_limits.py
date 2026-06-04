@@ -17,9 +17,9 @@ class DrawdownFilter:
 
     def __init__(
         self,
-        max_daily_dd: float = 0.03,
-        max_weekly_dd: float = 0.07,
-        max_monthly_dd: float = 0.15
+        max_daily_dd: float = 0.02,
+        max_weekly_dd: float = 0.04,
+        max_monthly_dd: float = 0.08
     ) -> None:
         """
         Args:

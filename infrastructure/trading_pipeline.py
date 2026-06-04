@@ -114,6 +114,19 @@ class TradingPipeline:
             avg_loss = np.mean(self._trade_losses) if self._trade_losses else 1.0
             self.portfolio_state.win_loss_ratio = avg_win / max(avg_loss, 1e-8)
 
+    def reset_periodic_pnl(self, reset_daily: bool = True, reset_weekly: bool = False, reset_monthly: bool = False) -> None:
+        """
+        Reset periodic P&L counters at time boundaries.
+        Called by the simulation loop when a new day/week/month starts.
+        This allows circuit breakers to re-arm after the period rolls over.
+        """
+        if reset_daily:
+            self.portfolio_state.daily_pnl = 0.0
+        if reset_weekly:
+            self.portfolio_state.weekly_pnl = 0.0
+        if reset_monthly:
+            self.portfolio_state.monthly_pnl = 0.0
+
     def _maybe_checkpoint(self) -> None:
         """Save state every 5 minutes (simulated or real time)."""
         now = time.time()

@@ -150,9 +150,32 @@ class GOATEnsembleAggregator(BaseModel):
             path = "BMA_FALLBACK"
 
         summary_pred = float(np.mean(final_pred))
+        
+        # Online RL: If BMA has enough reinforcement data, adjust confidence
+        # based on whether high-performing models agree with the signal direction
+        rl_confidence_adj = 1.0
+        bma_ready = (self.bma is not None and 
+                     len(self.bma.tracker.actual_history) >= 50)
+        if bma_ready and sub_model_preds:
+            bma_weights = self.bma.get_weights()
+            # Compute agreement: weighted sum of sign-agreement between each 
+            # model's prediction and the ensemble prediction
+            agreement = 0.0
+            for m_name, w in bma_weights.items():
+                m_pred = float(np.mean(sub_model_preds.get(m_name, np.zeros(1))))
+                if summary_pred != 0:
+                    # +1 if model agrees with ensemble direction, -1 if disagrees
+                    sign_agree = 1.0 if (m_pred * summary_pred > 0) else -1.0
+                    agreement += w * sign_agree
+            # Scale agreement [-1, 1] to confidence adjustment [0.7, 1.3]
+            rl_confidence_adj = float(np.clip(1.0 + 0.3 * agreement, 0.7, 1.3))
+        
+        base_confidence = float(np.clip(1.0 - avg_uncertainty, 0.0, 1.0))
+        adjusted_confidence = float(np.clip(base_confidence * rl_confidence_adj, 0.0, 1.0))
+        
         signal = self.signal_generator.generate(
             prediction=summary_pred,
-            confidence=float(np.clip(1.0 - avg_uncertainty, 0.0, 1.0)),
+            confidence=adjusted_confidence,
             uncertainty=avg_uncertainty,
             regime=regime,
             sub_model_predictions={k: float(np.mean(v)) for k, v in sub_model_preds.items()},

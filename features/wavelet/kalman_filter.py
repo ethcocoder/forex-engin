@@ -24,7 +24,10 @@ _lib_path = os.path.join(_current_dir, _lib_name)
 _kalman_lib = None
 if os.path.exists(_lib_path):
     try:
-        _kalman_lib = ctypes.CDLL(_lib_path)
+        kwargs = {}
+        if sys.platform.startswith("win"):
+            kwargs["winmode"] = 0
+        _kalman_lib = ctypes.CDLL(_lib_path, **kwargs)
         # Bind argument types and return type
         # void kalman_filter_2d(const double* close, int n, double qp, double qv, double r, double* filtered_price, double* velocity_estimate)
         _kalman_lib.kalman_filter_2d.argtypes = [
