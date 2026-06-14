@@ -89,7 +89,7 @@ risk:
   sizing:
     method: "kelly" # kelly, fixed, volatility
     kelly_fraction: 0.25
-    max_account_risk_pct: 0.02
+    max_account_risk_pct: 0.0075
   circuit_breakers:
     daily_drawdown_limit: 0.03
     weekly_drawdown_limit: 0.06

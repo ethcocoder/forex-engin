@@ -111,8 +111,61 @@ class RealTimePipeline(TradingPipeline):
                     logger.warning("Stop-Loss triggered (Short)", pair=pair, price=current_price, stop_loss=stop_loss)
                     is_sl_triggered = True
             
-            if is_sl_triggered or self.trade_durations[pair] >= self.max_hold_steps:
-                if is_sl_triggered:
+            # Check Drawdown Breaches (Realized + Unrealized)
+            is_dd_breached = False
+            entry_price = broker.entry_prices.get(pair)
+            if entry_price is not None:
+                unrealized_pnl = current_pos * (current_price - entry_price)
+                dd_filter = None
+                for limit in getattr(self.risk_engine, "limits", []):
+                    if limit.__class__.__name__ == "DrawdownFilter":
+                        dd_filter = limit
+                        break
+                
+                if dd_filter is not None:
+                    equity = broker.cash + unrealized_pnl
+                    if equity > 0:
+                        total_daily_pnl = self.portfolio_state.daily_pnl + unrealized_pnl
+                        current_daily_dd_pct = -total_daily_pnl / equity
+                        
+                        total_weekly_pnl = self.portfolio_state.weekly_pnl + unrealized_pnl
+                        current_weekly_dd_pct = -total_weekly_pnl / equity
+                        
+                        total_monthly_pnl = self.portfolio_state.monthly_pnl + unrealized_pnl
+                        current_monthly_dd_pct = -total_monthly_pnl / equity
+                        
+                        if current_daily_dd_pct > dd_filter.max_daily_dd:
+                            logger.warning(
+                                "EMERGENCY: Daily drawdown limit breached on floating loss! Liquidating.",
+                                pair=pair,
+                                daily_pnl=total_daily_pnl,
+                                dd_pct=f"{current_daily_dd_pct:.4f}",
+                                limit=dd_filter.max_daily_dd
+                            )
+                            is_dd_breached = True
+                        elif current_weekly_dd_pct > dd_filter.max_weekly_dd:
+                            logger.warning(
+                                "EMERGENCY: Weekly drawdown limit breached on floating loss! Liquidating.",
+                                pair=pair,
+                                weekly_pnl=total_weekly_pnl,
+                                dd_pct=f"{current_weekly_dd_pct:.4f}",
+                                limit=dd_filter.max_weekly_dd
+                            )
+                            is_dd_breached = True
+                        elif current_monthly_dd_pct > dd_filter.max_monthly_dd:
+                            logger.warning(
+                                "EMERGENCY: Monthly drawdown limit breached on floating loss! Liquidating.",
+                                pair=pair,
+                                monthly_pnl=total_monthly_pnl,
+                                dd_pct=f"{current_monthly_dd_pct:.4f}",
+                                limit=dd_filter.max_monthly_dd
+                            )
+                            is_dd_breached = True
+            
+            if is_sl_triggered or is_dd_breached or self.trade_durations[pair] >= self.max_hold_steps:
+                if is_dd_breached:
+                    logger.warning("Drawdown circuit breaker triggered. Emergency liquidating position.", pair=pair)
+                elif is_sl_triggered:
                     logger.info("Stop-loss limit breached. Initiating exit order.", pair=pair, price=current_price, stop_loss=stop_loss)
                 else:
                     logger.info("Signal decay threshold reached. Initiating exit order.", pair=pair, steps=self.trade_durations[pair])
@@ -484,7 +537,11 @@ def run_quantized_paper_trading(features_path="data/EUR_USD_features.csv", raw_p
     
     cb_cfg = risk_cfg.get("circuit_breakers", {})
     if "daily_drawdown_limit" in cb_cfg:
-        risk_engine.register_limit(DrawdownFilter(max_daily_dd=cb_cfg["daily_drawdown_limit"]))
+        risk_engine.register_limit(DrawdownFilter(
+            max_daily_dd=cb_cfg.get("daily_drawdown_limit", 0.02),
+            max_weekly_dd=cb_cfg.get("weekly_drawdown_limit", 0.04),
+            max_monthly_dd=cb_cfg.get("monthly_drawdown_limit", 0.08)
+        ))
         
     risk_engine.register_filter(SpreadFilter(default_max_spread_pips=4.0))
     
