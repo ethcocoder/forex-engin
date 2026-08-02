@@ -190,6 +190,9 @@ def main():
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Device to run on")
     parser.add_argument("--output", type=str, default="saved_models/ensemble_aggregator", help="Base path for saved aggregator")
     parser.add_argument("--threads", type=int, default=None, help="Number of CPU threads to use (default: max physical cores - 1)")
+    parser.add_argument("--mc_passes", type=int, default=5, help="MC Dropout forward passes (reduce for CPU speed, default 5)")
+    parser.add_argument("--lgbm_reg_lambda", type=float, default=0.01, help="LightGBM L2 regularization (lower = wider predictions, default 0.01)")
+    parser.add_argument("--direction_threshold", type=float, default=0.0001, help="Signal direction threshold for the aggregator")
     
     args = parser.parse_args()
     
@@ -309,8 +312,33 @@ def main():
     regime_wrapper = RegimeEnsembleWrapper(regime_model, regime_mean, regime_std, hmm_features, features_df, args.seq_len)
     rl_wrapper = RLEnsembleWrapper(rl_model, features_cols, regime_cols, features_df, scaler_mean, scaler_std, args.seq_len)
     
-    # 5. Instantiate Master Ensemble Aggregator
-    agg = EnsembleAggregator(config=config)
+    # 5. Instantiate Master Ensemble Aggregator with CPU-speed overrides
+    # Override n_mc_passes and LightGBM params for fast local CPU training
+    cpu_config = dict(config)
+    cpu_config["ensemble"] = {
+        "n_mc_passes": args.mc_passes,
+        "uncertainty_threshold": 0.3,
+        "direction_threshold": args.direction_threshold,
+        "stacking_n_splits": 4,
+        "lgbm_params": {
+            "n_estimators": 200,
+            "max_depth": 4,
+            "learning_rate": 0.05,
+            "subsample": 0.8,
+            "colsample_bytree": 0.8,
+            "reg_alpha": 0.0,
+            "reg_lambda": args.lgbm_reg_lambda,
+            "random_state": 42,
+            "verbose": -1
+        }
+    }
+    logger.info(
+        "Ensemble aggregator config",
+        mc_passes=args.mc_passes,
+        lgbm_reg_lambda=args.lgbm_reg_lambda,
+        direction_threshold=args.direction_threshold
+    )
+    agg = EnsembleAggregator(config=cpu_config)
     
     # Register wrapped models
     agg.register_model("temporal", temporal_wrapper, is_torch=True)

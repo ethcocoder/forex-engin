@@ -165,5 +165,7 @@ class PPOModel(BaseModel):
         Loads a serialized Stable-Baselines3 PPO model.
         """
         # load the model using SB3's load method
-        self.model = PPO.load(path, device=self.device)
+        # SB3 auto-appends .zip — strip it to avoid double-extension bug
+        load_path = path[:-4] if path.endswith(".zip") else path
+        self.model = PPO.load(load_path, device=self.device)
         logger.info("Loaded PPOModel successfully from path", source=path)
