@@ -167,3 +167,7 @@ class VWAPRouter:
                 time.sleep(sleep_time)
 
         logger.info("VWAP execution finished", pair=parent_order.pair)
+
+
+# Legacy alias for compatibility with execution.routing imports
+VWAPOrder = VWAPRouter

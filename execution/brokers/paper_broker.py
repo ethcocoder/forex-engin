@@ -75,24 +75,42 @@ class PaperBroker(BaseBroker):
         current_pos = self.positions.get(pair, 0.0)
         new_pos = current_pos + (size * direction)
         
-        # Simple PnL update (ignoring margin lockup for simplicity in paper broker)
-        # If we are closing or reversing, calculate realized PnL
+        # Realized PnL tracking for closing/reversing positions
         if current_pos != 0.0:
             if (current_pos > 0 and direction < 0) or (current_pos < 0 and direction > 0):
                 # We are closing some or all of the position
                 close_size = min(abs(current_pos), size)
                 entry = self.entry_prices.get(pair, current_price)
                 
-                # Realized PnL = size * (exit - entry) * direction
+                # Realized PnL = closed_units * (exit - entry) * sign_of_original_position
                 pnl = close_size * (fill_price - entry) * (1 if current_pos > 0 else -1)
                 self.cash += pnl
                 
-        self.positions[pair] = new_pos
-        self.entry_prices[pair] = fill_price
-        
-        if self.positions[pair] == 0.0:
-            del self.positions[pair]
-            del self.entry_prices[pair]
+        # ── Weighted-Average Entry Price Tracking ────────────────────────────
+        # Properly track entry price instead of blindly overwriting
+        if new_pos == 0.0:
+            # Fully closed — remove position and entry
+            if pair in self.positions:
+                del self.positions[pair]
+            if pair in self.entry_prices:
+                del self.entry_prices[pair]
+        else:
+            self.positions[pair] = new_pos
+            
+            if current_pos == 0.0:
+                # Fresh entry — use fill price directly
+                self.entry_prices[pair] = fill_price
+            elif (current_pos > 0 and new_pos > 0 and direction > 0) or \
+                 (current_pos < 0 and new_pos < 0 and direction < 0):
+                # Adding to existing position in the same direction → weighted average
+                old_entry = self.entry_prices.get(pair, fill_price)
+                old_value = abs(current_pos) * old_entry
+                new_value = size * fill_price
+                self.entry_prices[pair] = (old_value + new_value) / abs(new_pos)
+            elif (current_pos > 0 and new_pos < 0) or (current_pos < 0 and new_pos > 0):
+                # Full reversal — new entry at fill price for the reversed portion
+                self.entry_prices[pair] = fill_price
+            # else: partial close — keep the original entry price for the remaining position
             
         logger.info(
             "PaperBroker filled order",

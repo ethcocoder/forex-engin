@@ -42,7 +42,8 @@ class WaveletDecomposition(BaseFeature):
         """
         self.validate(df)
         
-        close = df["close"].values
+        # Ensure we have a writable numpy array to avoid "buffer source array is read-only" error in pywt
+        close = df["close"].to_numpy(copy=True)
         n = len(df)
         
         window = kwargs.get("rolling_window", self.rolling_window)

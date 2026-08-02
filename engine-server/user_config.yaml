@@ -1,0 +1,7 @@
+account:
+  balance: 60000
+simulation:
+  god_mode: false
+  pair: EURUSD
+pairs:
+- EUR_USD

@@ -66,14 +66,14 @@ class SignalGenerator:
             direction_threshold=direction_threshold,
             decay_lookback=decay_lookback
         )
-
     def generate(
         self,
         prediction: float,
         confidence: float,
         uncertainty: float,
         regime: int,
-        sub_model_predictions: Optional[Dict[str, float]] = None
+        sub_model_predictions: Optional[Dict[str, float]] = None,
+        volatility: Optional[float] = None
     ) -> AlphaSignal:
         """
         Convert a raw ensemble prediction into a structured AlphaSignal.
@@ -84,20 +84,29 @@ class SignalGenerator:
             uncertainty: MC Dropout predictive standard deviation.
             regime: Current HMM regime state index.
             sub_model_predictions: Dict mapping sub-model names to their raw predictions.
+            volatility: Recent rolling market volatility.
 
         Returns:
             AlphaSignal with all fields populated.
         """
+        # Dynamic threshold based on volatility if available
+        if volatility is not None and volatility > 0:
+            k = self.direction_threshold / 0.0005
+            # Clamp threshold to prevent excessive scaling
+            threshold = float(np.clip(k * volatility, 0.0001, 0.005))
+        else:
+            threshold = self.direction_threshold
+
         # Direction classification
-        if prediction > self.direction_threshold:
+        if prediction > threshold:
             direction = 1
-        elif prediction < -self.direction_threshold:
+        elif prediction < -threshold:
             direction = -1
         else:
             direction = 0
 
         # Magnitude normalization: scale by 3x threshold, cap at 1.0
-        magnitude = min(abs(prediction) / (3.0 * self.direction_threshold), 1.0)
+        magnitude = min(abs(prediction) / (3.0 * threshold), 1.0)
 
         # Clamp confidence to valid range
         confidence = float(np.clip(confidence, 0.0, 1.0))
@@ -109,7 +118,8 @@ class SignalGenerator:
         # Build metadata
         metadata = {
             "raw_prediction": float(prediction),
-            "sub_model_predictions": sub_model_predictions or {}
+            "sub_model_predictions": sub_model_predictions or {},
+            "dynamic_threshold": float(threshold)
         }
 
         signal = AlphaSignal(

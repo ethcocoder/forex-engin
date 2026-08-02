@@ -1,0 +1,17 @@
+# Co-location configuration for global deployments
+
+NY4:
+  broker: lmax
+  ip_address: 192.168.1.10
+  port: 443
+  latency_target_ns: 50
+LD4:
+  broker: ib
+  ip_address: 192.168.1.11
+  port: 443
+  latency_target_ns: 60
+TY3:
+  broker: oanda
+  ip_address: 192.168.1.12
+  port: 443
+  latency_target_ns: 70

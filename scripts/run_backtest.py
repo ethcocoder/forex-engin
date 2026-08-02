@@ -108,8 +108,7 @@ class RLEnsembleWrapper:
     def predict(self, X, **kwargs):
         n_samples = X.shape[0]
         feats_raw = X[:, -1, :len(self.features_cols)]
-        feats = (feats_raw - self.scaler_mean) / self.scaler_std
-        feats = np.nan_to_num(feats, nan=0.0, posinf=0.0, neginf=0.0)
+        feats = np.nan_to_num(feats_raw, nan=0.0, posinf=0.0, neginf=0.0)
         
         # Pull environment observations variables from kwargs
         pos = np.full((n_samples, 1), kwargs.get("current_position", 0.0), dtype=np.float32)
@@ -121,10 +120,14 @@ class RLEnsembleWrapper:
         obs = np.hstack([feats, pos, unrealized, time_ind, regimes])
         obs = np.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
         
-        actions, _ = self.ppo_model.model.predict(obs, deterministic=True)
-        
-        action_mapping = {0: 0.0, 1: 0.5, 2: 1.0, 3: -0.5, 4: -1.0}
-        pred = np.array([action_mapping[int(a)] for a in actions], dtype=np.float64)
+        import torch
+        obs_tensor = torch.as_tensor(obs, device=self.ppo_model.model.device)
+        with torch.no_grad():
+            distribution = self.ppo_model.model.policy.get_distribution(obs_tensor)
+            action_probs = distribution.distribution.probs.cpu().numpy()
+            
+        action_values = np.array([0.0, 0.5, 1.0, -0.5, -1.0], dtype=np.float64)
+        pred = np.sum(action_probs * action_values, axis=1)
         return pred
 
 # -------------------------------------------------------------------------
@@ -146,10 +149,12 @@ class CustomVectorizedEngine(VectorizedBacktestEngine):
         if df is None or df.empty:
             logger.error("No data available for vectorized run", pair=pair)
             return {"status": "no_data"}
+        
+        logger.info("DIAG: raw df loaded", df_shape=df.shape, df_columns=list(df.columns), df_head_close=df["close"].head().tolist())
             
         n_samples = len(self.X_valid)
         
-        logger.info("Computing signals in batch...")
+        logger.info("Computing signals in batch...", n_samples=n_samples, X_valid_shape=self.X_valid.shape)
         # To avoid overheads, run predict in batches of 1000
         batch_size = 1000
         predictions = []
@@ -161,21 +166,73 @@ class CustomVectorizedEngine(VectorizedBacktestEngine):
             
         predictions = np.array(predictions)
         
+        logger.info("DIAG: predictions computed",
+            predictions_shape=predictions.shape,
+            pred_min=float(predictions.min()),
+            pred_max=float(predictions.max()),
+            pred_mean=float(predictions.mean()),
+            pred_std=float(predictions.std()),
+            pred_nonzero=int(np.count_nonzero(predictions))
+        )
+        
         # Align prediction outputs with the close prices
         # X_valid corresponds to sliding windows starting from seq_len - 1 to len(df) - horizon
         # Let's align df columns
         df_sub = df.iloc[self.seq_len - 1 : self.seq_len - 1 + n_samples].copy()
         df_sub["market_returns"] = df_sub["close"].pct_change()
         
-        # Signal direction mapping: Long (+1) if prediction > threshold, Short (-1) if prediction < -threshold, else Flat (0)
-        threshold = self.strategy.direction_threshold
-        df_sub["signal"] = np.where(predictions > threshold, 1, np.where(predictions < -threshold, -1, 0))
+        logger.info("DIAG: df_sub",
+            df_sub_shape=df_sub.shape,
+            close_min=float(df_sub["close"].min()),
+            close_max=float(df_sub["close"].max()),
+            mkt_ret_nonzero=int(df_sub["market_returns"].notna().sum()),
+            mkt_ret_mean=float(df_sub["market_returns"].mean()) if df_sub["market_returns"].notna().any() else 0.0
+        )
+        
+        # Dynamic volatility-adaptive thresholding
+        base_threshold = self.strategy.direction_threshold
+        k = base_threshold / 0.0005  # sensitivity coefficient
+        
+        # Compute rolling volatility from close prices (20-bar std of log returns)
+        log_rets = np.log(df["close"]).diff()
+        rolling_vol = log_rets.rolling(window=20).std().fillna(0.0005).values
+        # Align with df_sub
+        rolling_vol_sub = rolling_vol[self.seq_len - 1 : self.seq_len - 1 + n_samples]
+        
+        # Ensure predictions and df_sub are aligned in length
+        actual_len = min(len(predictions), len(df_sub))
+        predictions = predictions[:actual_len]
+        df_sub = df_sub.iloc[:actual_len].copy()
+        df_sub["market_returns"] = df_sub["close"].pct_change()
+        rolling_vol_sub = rolling_vol_sub[:actual_len]
+        
+        # Dynamic threshold per bar, clamped to sane limits
+        dynamic_threshold = np.clip(k * rolling_vol_sub, 0.0001, 0.005)
+        
+        logger.info("DIAG: dynamic threshold", 
+                     base=base_threshold, k=k,
+                     mean_vol=float(np.mean(rolling_vol_sub)),
+                     mean_threshold=float(np.mean(dynamic_threshold)))
+        
+        df_sub["signal"] = np.where(predictions > dynamic_threshold, 1, np.where(predictions < -dynamic_threshold, -1, 0))
+        
+        n_long = int((df_sub["signal"] == 1).sum())
+        n_short = int((df_sub["signal"] == -1).sum())
+        n_flat = int((df_sub["signal"] == 0).sum())
+        logger.info("DIAG: signal counts", n_long=n_long, n_short=n_short, n_flat=n_flat, total=actual_len)
         
         # Shift signal by 1 step to avoid lookahead bias
         df_sub["strategy_returns"] = df_sub["signal"].shift(1) * df_sub["market_returns"]
         
         df_sub["cum_returns"] = (1 + df_sub["strategy_returns"].fillna(0)).cumprod()
         equity_curve = self.portfolio.initial_capital * df_sub["cum_returns"]
+        
+        logger.info("DIAG: equity curve",
+            start_equity=float(equity_curve.iloc[0]),
+            end_equity=float(equity_curve.iloc[-1]),
+            min_equity=float(equity_curve.min()),
+            max_equity=float(equity_curve.max())
+        )
         
         # Realized trades
         df_sub["trade_trigger"] = df_sub["signal"].diff().fillna(0)
@@ -190,6 +247,8 @@ class CustomVectorizedEngine(VectorizedBacktestEngine):
                 "pnl": float(row["strategy_returns"] * self.portfolio.initial_capital),
                 "timestamp": ts
             })
+        
+        logger.info("DIAG: trades", n_raw_trades=len(raw_trades))
             
         self.portfolio.equity_history = equity_curve.tolist()
         
@@ -239,6 +298,15 @@ class CustomEventDrivenEngine(EventDrivenBacktestEngine):
             entry = self.portfolio.avg_entry.get(pair, bar["close"])
             unrealized = current_pos * (bar["close"] - entry)
             
+        # Compute rolling volatility from recent closes (20-bar window)
+        df = self.data_handler.data.get(pair)
+        if df is not None and self.current_bar_index >= 20:
+            recent_closes = df["close"].values[self.current_bar_index - 19 : self.current_bar_index + 1]
+            log_rets = np.diff(np.log(recent_closes))
+            rolling_vol = float(np.std(log_rets))
+        else:
+            rolling_vol = 0.0005
+
         # Predict AlphaSignal
         signal = self.strategy.predict(
             X_input,
@@ -246,7 +314,8 @@ class CustomEventDrivenEngine(EventDrivenBacktestEngine):
             current_position=current_pos,
             unrealized_pnl=unrealized,
             time_indicator=hour_ind,
-            sample_idx=self.current_bar_index - self.seq_len + 1
+            sample_idx=self.current_bar_index - self.seq_len + 1,
+            volatility=rolling_vol
         )
         
         if signal.direction != 0:
@@ -423,7 +492,35 @@ def main():
             
         data_handler = CSVDataHandler(csv_dir="data", pairs=[pair])
         portfolio = BacktestPortfolio(initial_capital=10000.0)
-        risk_engine = RiskEngine(config=config.get("risk", {}))
+        
+        # Configure RiskEngine with sizer and filters from configuration
+        risk_cfg = config.get("risk", {})
+        risk_engine = RiskEngine(config=risk_cfg)
+        
+        from risk.sizing.fixed_fractional import FixedFractionalSizer
+        from risk.sizing.kelly import KellySizer
+        from risk.sizing.volatility_scaled import VolatilitySizer
+        from risk.limits.drawdown_limits import DrawdownFilter
+        
+        sizing_cfg = risk_cfg.get("sizing", {})
+        sizer_method = sizing_cfg.get("method", "fixed").lower()
+        
+        if sizer_method == "kelly":
+            kelly_frac = sizing_cfg.get("kelly_fraction", 0.25)
+            max_risk = sizing_cfg.get("max_account_risk_pct", 0.02)
+            sizer = KellySizer(fraction=kelly_frac, max_risk_pct=max_risk)
+        elif sizer_method == "volatility":
+            risk_pct = sizing_cfg.get("max_account_risk_pct", 0.02)
+            sizer = VolatilitySizer(risk_pct=risk_pct)
+        else:
+            fraction = sizing_cfg.get("max_account_risk_pct", 0.02)
+            sizer = FixedFractionalSizer(fraction=fraction)
+            
+        risk_engine.set_sizer(sizer)
+        
+        cb_cfg = risk_cfg.get("circuit_breakers", {})
+        if "daily_drawdown_limit" in cb_cfg:
+            risk_engine.register_limit(DrawdownFilter(max_daily_dd=cb_cfg["daily_drawdown_limit"]))
         
         engine = CustomEventDrivenEngine(
             data_handler=data_handler,
@@ -439,6 +536,12 @@ def main():
         # Warm up aggregator cache for static models to speed up event loop by 100x+
         logger.info("Warming up EnsembleAggregator prediction cache...")
         agg.enable_caching(X_master)
+        
+        logger.info("DIAG: Event-driven setup",
+            X_master_shape=X_master.shape,
+            direction_threshold=agg.direction_threshold,
+            signal_gen_threshold=agg.signal_generator.direction_threshold
+        )
         
         results["event_driven"] = engine.run()
         

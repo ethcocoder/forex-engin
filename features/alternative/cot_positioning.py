@@ -73,7 +73,7 @@ class COTPositioning(BaseFeature):
         features_dict[f"{self.name}_spec_ratio"] = spec_ratio
         
         # Open interest change
-        oi_change = open_interest.pct_change(fill_value=0.0)
+        oi_change = open_interest.pct_change().fillna(0.0)
         features_dict[f"{self.name}_oi_change"] = oi_change
         
         # Net position change over a 5-period window

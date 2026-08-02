@@ -27,7 +27,10 @@ _lib_path = os.path.join(_current_dir, _lib_name)
 _rl_lib = None
 if os.path.exists(_lib_path):
     try:
-        _rl_lib = ctypes.CDLL(_lib_path)
+        kwargs = {}
+        if sys.platform.startswith("win"):
+            kwargs["winmode"] = 0
+        _rl_lib = ctypes.CDLL(_lib_path, **kwargs)
         
         # Bind calculate_portfolio_step
         _rl_lib.calculate_portfolio_step.argtypes = [

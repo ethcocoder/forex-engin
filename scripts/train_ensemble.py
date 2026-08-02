@@ -1,12 +1,41 @@
 import os
 import sys
+
+# 1. Parse threads count before imports to configure thread environments
+num_threads = None
+for i, arg in enumerate(sys.argv):
+    if arg.startswith("--threads="):
+        num_threads = arg.split("=")[1]
+    elif arg == "--threads" and i + 1 < len(sys.argv):
+        num_threads = sys.argv[i + 1]
+
+if num_threads is not None:
+    try:
+        threads_to_use = int(num_threads)
+    except ValueError:
+        threads_to_use = max(1, os.cpu_count() - 1) if os.cpu_count() else 4
+else:
+    # Use max cores - 1 by default to boost speed while keeping the OS responsive
+    threads_to_use = max(1, os.cpu_count() - 1) if os.cpu_count() else 4
+
+os.environ["OMP_NUM_THREADS"] = str(threads_to_use)
+os.environ["MKL_NUM_THREADS"] = str(threads_to_use)
+os.environ["OPENBLAS_NUM_THREADS"] = str(threads_to_use)
+os.environ["VECLIB_MAXIMUM_THREADS"] = str(threads_to_use)
+os.environ["NUMEXPR_NUM_THREADS"] = str(threads_to_use)
+
 import argparse
 import numpy as np
 import pandas as pd
 import structlog
 import pickle
 import torch
+import gc
 import joblib
+
+torch.set_num_threads(threads_to_use)
+torch.set_num_interop_threads(1)
+torch.set_grad_enabled(False)
 
 # Ensure the root directory is in the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -95,18 +124,8 @@ class RegimeEnsembleWrapper:
         pass
         
     def predict(self, X, **kwargs):
-        # Extract HMM features from raw unscaled features
-        regime_features_df = self.features_df[self.hmm_features]
-        regime_features_scaled = (regime_features_df.values - self.regime_mean) / self.regime_std
-        regime_features_scaled = np.nan_to_num(regime_features_scaled, nan=0.0, posinf=0.0, neginf=0.0)
-        
-        from numpy.lib.stride_tricks import sliding_window_view
-        windows = sliding_window_view(regime_features_scaled, window_shape=(self.seq_len, regime_features_scaled.shape[1]))
-        X_regime = windows.squeeze(1)
-        
-        n_samples = X.shape[0]
-        X_regime = X_regime[:n_samples]
-        return self.regime_model.predict(X_regime, return_proba=True)
+        # Extract regime probabilities from the last columns of X (which has been appended with regime columns)
+        return X[:, -1, -4:]
 
 
 class RLEnsembleWrapper:
@@ -124,13 +143,12 @@ class RLEnsembleWrapper:
         
     def predict(self, X, **kwargs):
         # X shape: [n_samples, seq_len, d_feat_total]
-        # Construct RL observation: [feats_scaled] + [pos] + [unrealized] + [time_indicator] + [regime_probs]
+        # Construct RL observation: [feats_raw] + [pos] + [unrealized] + [time_indicator] + [regime_probs]
         n_samples = X.shape[0]
         
-        # 1. Scaled raw features (first features_cols)
+        # 1. Raw unscaled features (RL agent is trained on raw unscaled features)
         feats_raw = X[:, -1, :len(self.features_cols)]
-        feats = (feats_raw - self.scaler_mean) / self.scaler_std
-        feats = np.nan_to_num(feats, nan=0.0, posinf=0.0, neginf=0.0)
+        feats = np.nan_to_num(feats_raw, nan=0.0, posinf=0.0, neginf=0.0)
         
         # 2. Position (flat during offline prediction/alignment)
         pos = np.zeros((n_samples, 1), dtype=np.float32)
@@ -152,12 +170,14 @@ class RLEnsembleWrapper:
         obs = np.hstack([feats, pos, unrealized, time_ind, regimes])
         obs = np.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
         
-        # SB3 predict supports batched observations natively
-        actions, _ = self.ppo_model.model.predict(obs, deterministic=True)
-        
-        # Map actions to continuous values: 0 -> 0.0, 1 -> 0.5, 2 -> 1.0, 3 -> -0.5, 4 -> -1.0
-        action_mapping = {0: 0.0, 1: 0.5, 2: 1.0, 3: -0.5, 4: -1.0}
-        pred = np.array([action_mapping[int(a)] for a in actions], dtype=np.float64)
+        import torch
+        obs_tensor = torch.as_tensor(obs, device=self.ppo_model.model.device)
+        with torch.no_grad():
+            distribution = self.ppo_model.model.policy.get_distribution(obs_tensor)
+            action_probs = distribution.distribution.probs.cpu().numpy()
+            
+        action_values = np.array([0.0, 0.5, 1.0, -0.5, -1.0], dtype=np.float64)
+        pred = np.sum(action_probs * action_values, axis=1)
         return pred
 
 
@@ -169,6 +189,7 @@ def main():
     parser.add_argument("--horizon", type=int, default=1, help="Prediction horizon")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Device to run on")
     parser.add_argument("--output", type=str, default="saved_models/ensemble_aggregator", help="Base path for saved aggregator")
+    parser.add_argument("--threads", type=int, default=None, help="Number of CPU threads to use (default: max physical cores - 1)")
     parser.add_argument("--mc_passes", type=int, default=5, help="MC Dropout forward passes (reduce for CPU speed, default 5)")
     parser.add_argument("--lgbm_reg_lambda", type=float, default=0.01, help="LightGBM L2 regularization (lower = wider predictions, default 0.01)")
     parser.add_argument("--direction_threshold", type=float, default=0.0001, help="Signal direction threshold for the aggregator")
@@ -179,6 +200,7 @@ def main():
         logger.error("Features or raw data files not found. Ensure previous steps are run.")
         sys.exit(1)
         
+    logger.info("Initializing run context", threads_configured=threads_to_use)
     logger.info("Loading DataFrames...")
     features_df = pd.read_csv(args.features, index_col="timestamp", parse_dates=True)
     raw_df = pd.read_csv(args.raw, index_col="timestamp", parse_dates=True)
@@ -323,15 +345,22 @@ def main():
     agg.register_model("maml", maml_wrapper, is_torch=True)
     agg.register_model("regime", regime_wrapper, is_torch=False)
     agg.register_model("rl", rl_wrapper, is_torch=False)
-    
-    logger.info("Training LightGBM stacking meta-model on predictions (skip_oos=True for speed)...")
+
+    logger.info(
+        "Beginning EnsembleAggregator fit",
+        X_shape=X_valid.shape,
+        y_shape=y_valid.shape,
+        sub_models=list(agg.sub_models.keys()),
+        skip_oos=True
+    )
     agg.fit(X_valid, y_valid, skip_oos=True)
-    
+
     # Save the aggregator state
     logger.info(f"Saving EnsembleAggregator state to {args.output}...")
     agg.save(args.output)
-    
+
     logger.info("EnsembleAggregator trained and saved successfully!")
+
 
 if __name__ == "__main__":
     main()

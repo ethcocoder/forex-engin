@@ -1,0 +1,13 @@
+# Engine-sim + data-prep dependencies for the engine service (torch-free).
+# The sim path runs on quantized ONNX + numpy/pandas; torch and
+# stable_baselines3 are mocked. These are the remaining runtime deps the
+# engine stack needs (scikit-learn/hmmlearn to unpickle the saved models).
+structlog>=23.1.0
+scikit-learn>=1.2.2
+hmmlearn>=0.3.0
+scipy>=1.10.1
+requests>=2.28.0
+yfinance>=0.2.0
+PyWavelets>=1.4.1
+# lightgbm required — saved ensemble pickle files reference LGBMRegressor classes.
+lightgbm

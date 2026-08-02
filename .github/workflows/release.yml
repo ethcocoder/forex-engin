@@ -1,0 +1,53 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            script: dist:linux
+          - os: windows-latest
+            script: dist:win
+          - os: macos-latest
+            script: dist:mac
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build + package (${{ matrix.os }})
+        working-directory: desktop
+        run: npm run ${{ matrix.script }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Smoke-test the Linux deb
+        if: runner.os == 'Linux'
+        working-directory: desktop
+        run: |
+          sudo dpkg -i dist/*.deb
+          test -x "/opt/FOREX DESK/forex-desk"
+          echo "deb install OK"
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: desktop/dist/*.{AppImage,deb,exe,dmg,zip}
+          fail_on_unmatched_globs: true

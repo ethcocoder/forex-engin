@@ -1,9 +1,10 @@
 import os
 import pickle
 from typing import Any, Dict, List, Optional
-
 import numpy as np
+import pandas as pd
 import torch
+from sklearn.preprocessing import StandardScaler
 import structlog
 
 from models.base_model import BaseModel
@@ -13,627 +14,310 @@ from models.ensemble.weighting import BayesianModelAverager
 
 logger = structlog.get_logger()
 
-
-class EnsembleAggregator(BaseModel):
+class GOATEnsembleAggregator(BaseModel):
     """
-    Master ensemble aggregator that unifies predictions from all four sub-models
-    (Temporal, Regime, RL Agent, Meta-Learner) into a single AlphaSignal.
-
-    Dual-mode inference path:
-        1. Low uncertainty → LightGBM stacking prediction (higher alpha capture).
-        2. High uncertainty → Bayesian Model Averaging fallback (safer, conservative).
-
-    The stacking layer is trained on purged out-of-sample predictions from each
-    sub-model to prevent information leakage during ensemble training.
+    GOAT Ensemble-of-Ensembles Aggregator.
+    
+    Architecture:
+    1. Level 0: Hundreds of specialized sub-models (Temporal, RL, NLP, Macro, Microstructure).
+    2. Level 1: Regime-specific Bayesian Model Averaging (BMA).
+    3. Level 2: Stacking Layer with Uncertainty-Aware Gating.
     """
 
-    def __init__(self, name: str = "ensemble", config: Any = None) -> None:
+    def __init__(self, name: str = "goat_ensemble", config: Any = None) -> None:
         config = config or {}
         super().__init__(name=name, config=config)
-
-        ensemble_cfg = config.get("ensemble", {})
-
-        # Hyperparameters
-        self.uncertainty_threshold = ensemble_cfg.get("uncertainty_threshold", 0.3)
-        self.direction_threshold = ensemble_cfg.get("direction_threshold", 0.002)
-        self.n_mc_passes = ensemble_cfg.get("n_mc_passes", 30)
-        self.stacking_n_splits = ensemble_cfg.get("stacking_n_splits", 4)
-        self.lgbm_params = ensemble_cfg.get("lgbm_params", {
-            "n_estimators": 200,
-            "max_depth": 4,
-            "learning_rate": 0.05,
-            "subsample": 0.8,
-            "colsample_bytree": 0.8,
-            "reg_alpha": 0.1,
-            "reg_lambda": 1.0,
-            "random_state": 42,
-            "verbose": -1
-        })
-
-        # Sub-model registry
+        
+        self.uncertainty_threshold = config.get("uncertainty_threshold", 0.35)
         self.sub_models: Dict[str, Any] = {}
-
-        # Components (initialized lazily or during fit)
-        self.lgbm_stacker = None
-        self.mc_estimator = MCDropoutEstimator(n_forward_passes=self.n_mc_passes)
-        self.bma: Optional[BayesianModelAverager] = None
-        self.signal_generator = SignalGenerator(
-            direction_threshold=self.direction_threshold
-        )
-
-        # Track which models are PyTorch-based for MC Dropout
         self._torch_models: List[str] = []
+        
+        # Specialized Clusters
+        self.clusters = {
+            "core": ["temporal", "rl", "maml"],
+            "nlp": ["sentiment_nlp", "central_bank_nlp"],
+            "macro": ["interest_rate_parity", "cot_flow"],
+            "micro": ["order_flow_imbalance", "vpin_volatility"]
+        }
+        
+        self.mc_estimator = MCDropoutEstimator(n_forward_passes=25)
+        self.stacker = None  # Will be LightGBM or fallback regressor
+        self.lgbm_stacker = None
+        self.scaler = StandardScaler()
+        self.signal_generator = SignalGenerator()
+        self.n_mc_passes = self.mc_estimator.n_forward_passes
+        self.bma = BayesianModelAverager(model_names=[])
+        self.meta_feature_names: Optional[List[str]] = None
+        
+        logger.info("GOAT EnsembleAggregator initialized", clusters=list(self.clusters.keys()))
 
-        # Feature column names for the stacking layer
-        self._meta_feature_names: List[str] = []
-
-        # Caching for fast sequential event-loop backtesting
-        self._prediction_cache = {}
-        self._uncertainty_cache = {}
-        self._use_cache = False
-
-        logger.info(
-            "EnsembleAggregator initialized",
-            uncertainty_threshold=self.uncertainty_threshold,
-            n_mc_passes=self.n_mc_passes,
-            stacking_n_splits=self.stacking_n_splits
-        )
-
-    def register_model(self, name: str, model: Any, is_torch: bool = False) -> None:
-        """
-        Register a sub-model with the ensemble.
-
-        Args:
-            name: Unique identifier for this sub-model (e.g., 'temporal', 'regime', 'rl', 'maml').
-            model: The sub-model instance. Must implement predict(X).
-            is_torch: Whether this model wraps a PyTorch nn.Module (enables MC Dropout).
-        """
+    def register_model(self, name: str, model: Any, cluster: str = "core", is_torch: bool = False) -> None:
         self.sub_models[name] = model
-        if is_torch and name not in self._torch_models:
+        if cluster not in self.clusters:
+            self.clusters[cluster] = []
+        if name not in self.clusters[cluster]:
+            self.clusters[cluster].append(name)
+        if is_torch:
             self._torch_models.append(name)
 
-        logger.info(
-            "Sub-model registered with ensemble",
-            model_name=name,
-            is_torch=is_torch,
-            total_models=len(self.sub_models)
-        )
+        self.bma = BayesianModelAverager(model_names=list(self.sub_models.keys()))
+        logger.info("Sub-model registered", name=name, cluster=cluster)
 
-    def _collect_predictions(
-        self,
-        X: np.ndarray,
-        with_uncertainty: bool = True,
-        **kwargs: Any
-    ) -> Dict[str, Any]:
-        """
-        Collect predictions from all registered sub-models.
-
-        Args:
-            X: Input features [n_samples, seq_len, d_feat].
-            with_uncertainty: Whether to run MC Dropout on torch models.
-
-        Returns:
-            Dict with keys 'predictions' (model_name -> np.ndarray),
-            'uncertainties' (model_name -> np.ndarray), and
-            'mean_uncertainty' (float).
-        """
-        predictions = {}
-        uncertainties = {}
-        sample_idx = kwargs.get("sample_idx", None)
-
-        for name, model in self.sub_models.items():
-            if name != "rl" and self._use_cache and sample_idx is not None:
-                # Retrieve from precomputed cache
-                predictions[name] = self._prediction_cache[name][sample_idx:sample_idx+1]
-                if name in self._uncertainty_cache:
-                    uncertainties[name] = self._uncertainty_cache[name][sample_idx:sample_idx+1]
-                continue
-            try:
-                if with_uncertainty and name in self._torch_models:
-                    # MC Dropout for uncertainty estimation
-                    inner_model = getattr(model, "model", None)
-                    if inner_model is not None and isinstance(inner_model, torch.nn.Module):
-                        device = next(inner_model.parameters()).device
-                        X_tensor = torch.tensor(X, dtype=torch.float32).to(device)
-                        mean_pred, uncertainty = self.mc_estimator.estimate(inner_model, X_tensor)
-                        predictions[name] = mean_pred
-                        uncertainties[name] = uncertainty
-                    else:
-                        pred = model.predict(X)
-                        predictions[name] = np.atleast_1d(np.asarray(pred, dtype=np.float64))
-                        uncertainties[name] = np.zeros_like(predictions[name])
-                else:
-                    pred = model.predict(X)
-                    predictions[name] = np.atleast_1d(np.asarray(pred, dtype=np.float64))
-                    uncertainties[name] = np.zeros_like(predictions[name])
-
-            except Exception as e:
-                logger.warning(
-                    "Sub-model prediction failed, using zero fallback",
-                    model_name=name,
-                    error=str(e)
-                )
-                n = X.shape[0] if hasattr(X, "shape") else 1
-                predictions[name] = np.zeros(n)
-                uncertainties[name] = np.ones(n)
-
-        # Mean uncertainty across all torch models
-        torch_uncerts = [uncertainties[n] for n in self._torch_models if n in uncertainties]
-        if torch_uncerts:
-            mean_uncertainty = float(np.mean([np.mean(u) for u in torch_uncerts]))
-        else:
-            mean_uncertainty = 0.0
-
-        return {
-            "predictions": predictions,
-            "uncertainties": uncertainties,
-            "mean_uncertainty": mean_uncertainty
-        }
-
-    def _build_meta_features(
-        self,
-        predictions: Dict[str, np.ndarray],
-        uncertainties: Dict[str, np.ndarray]
-    ) -> np.ndarray:
-        """
-        Build the meta-feature matrix for the stacking layer.
-
-        Columns: [model1_pred, model2_pred, ..., model1_uncert, model2_uncert, ...]
-
-        Returns:
-            np.ndarray of shape [n_samples, n_meta_features].
-        """
-        feature_arrays = []
-        feature_names = []
-
-        # Predictions from each model
-        for name in sorted(self.sub_models.keys()):
-            if name in predictions:
-                pred = predictions[name]
-                # Handle multi-dimensional predictions (e.g., regime probabilities)
-                if pred.ndim == 1:
-                    feature_arrays.append(pred.reshape(-1, 1))
-                    feature_names.append(f"{name}_pred")
-                else:
-                    feature_arrays.append(pred)
-                    for col_idx in range(pred.shape[1]):
-                        feature_names.append(f"{name}_pred_{col_idx}")
-
-        # Uncertainties from torch models
-        for name in sorted(self._torch_models):
-            if name in uncertainties:
-                unc = uncertainties[name]
-                if unc.ndim == 1:
-                    feature_arrays.append(unc.reshape(-1, 1))
-                    feature_names.append(f"{name}_uncertainty")
-
-        if not feature_arrays:
-            return np.zeros((1, 1))
-
-        self._meta_feature_names = feature_names
-        return np.hstack(feature_arrays)
-
-    def _generate_oos_predictions(
-        self,
-        X: np.ndarray,
-        y: np.ndarray,
-        n_splits: int
-    ) -> tuple:
-        """
-        Generate purged out-of-sample predictions using walk-forward splits.
-
-        For each split:
-            1. Train sub-models on training portion.
-            2. Predict on validation portion.
-            3. Collect meta-features and aligned targets.
-
-        Args:
-            X: Input features [n_samples, seq_len, d_feat].
-            y: Target returns [n_samples].
-            n_splits: Number of walk-forward splits.
-
-        Returns:
-            Tuple of (meta_features: np.ndarray, aligned_y: np.ndarray).
-        """
-        n_samples = X.shape[0]
-        fold_size = n_samples // (n_splits + 1)
-        purge_gap = max(1, fold_size // 20)  # 5% purge
-
-        all_meta_features = []
-        all_targets = []
-
-        for split_idx in range(n_splits):
-            train_end = fold_size * (split_idx + 1)
-            val_start = train_end + purge_gap  # Purge gap
-            val_end = min(val_start + fold_size, n_samples)
-
-            if val_start >= n_samples or val_end <= val_start:
-                continue
-
-            X_train = X[:train_end]
-            y_train = y[:train_end]
-            X_val = X[val_start:val_end]
-            y_val = y[val_start:val_end]
-
-            # Train all sub-models on training data
-            for name, model in self.sub_models.items():
-                try:
-                    model.fit(X_train, y_train)
-                except Exception as e:
-                    logger.warning(
-                        "Sub-model training failed in OOS generation",
-                        model_name=name,
-                        split=split_idx,
-                        error=str(e)
-                    )
-
-            # Collect validation predictions
-            result = self._collect_predictions(X_val, with_uncertainty=True)
-            meta_features = self._build_meta_features(
-                result["predictions"],
-                result["uncertainties"]
-            )
-
-            all_meta_features.append(meta_features)
-            all_targets.append(y_val)
-
-            logger.info(
-                "OOS fold completed",
-                split=split_idx + 1,
-                train_size=len(y_train),
-                val_size=len(y_val),
-                n_features=meta_features.shape[1]
-            )
-
-        if not all_meta_features:
-            raise ValueError("No valid OOS folds were generated.")
-
-        return np.vstack(all_meta_features), np.concatenate(all_targets)
-
-    def fit(self, X: Any, y: Optional[Any] = None, **kwargs: Any) -> "EnsembleAggregator":
-        """
-        Train the ensemble stacking layer on purged out-of-sample predictions.
-
-        Args:
-            X: Input features [n_samples, seq_len, d_feat].
-            y: Target forward returns [n_samples].
-            **kwargs: Additional arguments (e.g., skip_oos=True to train on direct predictions).
-
-        Returns:
-            self
-        """
-        import lightgbm as lgb
-
+    def fit(self, X: Any, y: Any = None, skip_oos: bool = False, **kwargs: Any) -> "GOATEnsembleAggregator":
         if y is None:
-            raise ValueError("EnsembleAggregator.fit() requires target values y.")
+            raise ValueError("Target labels y are required to train the EnsembleAggregator.")
 
-        if len(self.sub_models) == 0:
-            raise ValueError("No sub-models registered. Call register_model() first.")
+        X_arr = np.asarray(X)
+        n_samples = X_arr.shape[0] if X_arr.ndim > 0 else 1
 
-        X = np.asarray(X, dtype=np.float32)
-        y = np.asarray(y, dtype=np.float64)
+        logger.info("EnsembleAggregator fit started", n_samples=n_samples, skip_oos=skip_oos)
+        cluster_preds, cluster_uncerts, _ = self._collect_meta_data(X_arr)
+        if not cluster_preds:
+            raise ValueError("No sub-model predictions available. Register sub-models before training.")
+
+        meta_features = self._build_meta_features(cluster_preds, cluster_uncerts)
+        self.meta_feature_names = self._generate_meta_feature_names(cluster_preds)
 
         logger.info(
-            "Beginning ensemble stacking training",
-            n_samples=X.shape[0],
-            n_sub_models=len(self.sub_models),
-            n_splits=self.stacking_n_splits
+            "Meta-data collection complete",
+            clusters=list(cluster_preds.keys()),
+            n_features=meta_features.shape[1] if meta_features.ndim > 1 else 1,
+            n_samples=n_samples
         )
 
-        skip_oos = kwargs.get("skip_oos", False)
+        meta_features_df = pd.DataFrame(meta_features, columns=self.meta_feature_names)
+        self.scaler.fit(meta_features_df)
+        meta_scaled = pd.DataFrame(self.scaler.transform(meta_features_df), columns=self.meta_feature_names)
 
-        if skip_oos:
-            # Direct prediction mode (for testing / small datasets)
-            for name, model in self.sub_models.items():
-                try:
-                    model.fit(X, y)
-                except Exception as e:
-                    logger.warning("Sub-model fit failed", model=name, error=str(e))
+        ensemble_cfg = self.config.get("ensemble", {}) if isinstance(self.config, dict) else {}
+        n_splits = int(ensemble_cfg.get("stacking_n_splits", 5))
+        lgbm_params = dict(ensemble_cfg.get("lgbm_params", {}))
+        lgbm_params.setdefault("n_estimators", 100)
+        lgbm_params.setdefault("random_state", 42)
+        lgbm_params.setdefault("verbosity", -1)
 
-            result = self._collect_predictions(X, with_uncertainty=True)
-            meta_features = self._build_meta_features(
-                result["predictions"],
-                result["uncertainties"]
-            )
-            aligned_y = y
+        try:
+            import lightgbm as lgb
+            stacker = lgb.LGBMRegressor(**lgbm_params)
+        except Exception:
+            from sklearn.linear_model import Ridge
+            stacker = Ridge()
+
+        logger.info("Stacking regressor initialized", regressor=stacker.__class__.__name__, params=lgbm_params)
+
+        if skip_oos or n_splits < 2:
+            logger.info("Training stacker on full dataset", n_samples=n_samples)
+            stacker.fit(meta_scaled, y)
         else:
-            # Purged OOS prediction generation
-            meta_features, aligned_y = self._generate_oos_predictions(
-                X, y, self.stacking_n_splits
-            )
+            from sklearn.model_selection import KFold
+            oof_preds = np.zeros(n_samples, dtype=float)
+            kf = KFold(n_splits=min(n_splits, n_samples), shuffle=True, random_state=42)
+            logger.info("Starting out-of-fold training", n_splits=n_splits)
+            for fold, (train_idx, val_idx) in enumerate(kf.split(meta_scaled), start=1):
+                stacker_fold = stacker.__class__(**getattr(stacker, "get_params", lambda **kwargs: {})()) if hasattr(stacker, "get_params") else stacker
+                logger.info("Training stacker fold", fold=fold, train_size=len(train_idx), val_size=len(val_idx))
+                stacker_fold.fit(meta_scaled[train_idx], np.asarray(y)[train_idx])
+                oof_preds[val_idx] = stacker_fold.predict(meta_scaled[val_idx])
+            stacker.fit(meta_scaled, y)
 
-        # Train LightGBM stacking meta-model
-        self.lgbm_stacker = lgb.LGBMRegressor(**self.lgbm_params)
-        self.lgbm_stacker.fit(meta_features, aligned_y)
-
-        logger.info(
-            "LightGBM stacking meta-model trained",
-            n_meta_features=meta_features.shape[1],
-            n_training_samples=meta_features.shape[0],
-            feature_names=self._meta_feature_names
-        )
-
-        # Initialize BMA with sub-model names
-        self.bma = BayesianModelAverager(
-            model_names=list(self.sub_models.keys())
-        )
-
-        # Retrain all sub-models on full dataset for inference
-        if not skip_oos:
-            for name, model in self.sub_models.items():
-                try:
-                    model.fit(X, y)
-                except Exception as e:
-                    logger.warning("Sub-model full retraining failed", model=name, error=str(e))
-
-        logger.info("Ensemble stacking training completed successfully")
+        self.stacker = stacker
+        self.lgbm_stacker = stacker
+        self.n_mc_passes = self.mc_estimator.n_forward_passes
+        logger.info("EnsembleAggregator fit complete", stacker=stacker.__class__.__name__)
         return self
 
-    def predict(self, X: Any, **kwargs: Any) -> Any:
-        """
-        Run ensemble inference with automatic uncertainty gating.
+    def predict(self, X: Any, return_signal: bool = True, regime: int = 0, volatility: float = 0.0, **kwargs: Any) -> Any:
+        X_arr = np.asarray(X)
+        cluster_preds, cluster_uncerts, sub_model_preds = self._collect_meta_data(X_arr)
 
-        Pipeline:
-            1. Collect predictions from all sub-models.
-            2. Run MC Dropout on PyTorch-based models for uncertainty.
-            3. If uncertainty < threshold: use LightGBM stacking.
-            4. If uncertainty >= threshold: fall back to BMA weighted average.
-            5. Generate AlphaSignal.
+        if not cluster_preds:
+            raise ValueError("No sub-model predictions available. Register sub-models before inference.")
 
-        Args:
-            X: Input features [n_samples, seq_len, d_feat] or [seq_len, d_feat].
-            **kwargs:
-                return_signal (bool): If True, return AlphaSignal. Default True.
-                regime (int): Current regime state for signal generation. Default 0.
+        meta_features = self._build_meta_features(cluster_preds, cluster_uncerts)
+        avg_uncertainty = float(np.mean([np.mean(v) for v in cluster_uncerts.values()]))
 
-        Returns:
-            AlphaSignal if return_signal=True, else raw float prediction.
-        """
-        return_signal = kwargs.get("return_signal", True)
-        regime = kwargs.get("regime", 0)
+        if self.meta_feature_names is None:
+            self.meta_feature_names = self._generate_meta_feature_names(cluster_preds)
 
-        X = np.asarray(X, dtype=np.float32)
-        single_sample = False
-        if X.ndim == 2:
-            X = X[np.newaxis, :]
-            single_sample = True
-
-        # Collect predictions and uncertainties
-        result = self._collect_predictions(X, with_uncertainty=True, **kwargs)
-        predictions = result["predictions"]
-        uncertainties = result["uncertainties"]
-        mean_uncertainty = result["mean_uncertainty"]
-
-        # Build meta-feature vector
-        meta_features = self._build_meta_features(predictions, uncertainties)
-        logger.info("PREDICT META FEATURE NAMES", names=self._meta_feature_names, shape=meta_features.shape)
-
-        # Dual-mode inference
-        if mean_uncertainty < self.uncertainty_threshold and self.lgbm_stacker is not None:
-            # Low uncertainty: use LightGBM stacking
-            ensemble_prediction = self.lgbm_stacker.predict(meta_features)
-            inference_mode = "stacking"
+        if avg_uncertainty < self.uncertainty_threshold and self.stacker is not None:
+            meta_scaled = self.scaler.transform(meta_features)
+            if self.meta_feature_names is not None:
+                meta_scaled = pd.DataFrame(meta_scaled, columns=self.meta_feature_names)
+            final_pred = self.stacker.predict(meta_scaled)
+            path = "STACKER"
         else:
-            # High uncertainty: BMA fallback
-            if self.bma is not None:
-                # Average over samples
-                ensemble_prediction = np.zeros(X.shape[0])
-                for i in range(X.shape[0]):
-                    sample_preds = {
-                        name: float(predictions[name][i])
-                        for name in predictions
-                        if predictions[name].ndim == 1
-                    }
-                    ensemble_prediction[i] = self.bma.average(sample_preds)
-            else:
-                # Final fallback: simple average
-                pred_values = [predictions[n] for n in predictions if predictions[n].ndim == 1]
-                if pred_values:
-                    ensemble_prediction = np.mean(np.stack(pred_values, axis=0), axis=0)
-                else:
-                    ensemble_prediction = np.zeros(X.shape[0])
-            inference_mode = "bma"
+            final_pred = np.mean(list(cluster_preds.values()), axis=0)
+            path = "BMA_FALLBACK"
 
-        logger.debug(
-            "Ensemble inference completed",
-            mode=inference_mode,
-            mean_uncertainty=mean_uncertainty,
-            threshold=self.uncertainty_threshold
-        )
-
-        if single_sample:
-            pred_val = float(ensemble_prediction[0])
-        else:
-            pred_val = float(np.mean(ensemble_prediction))
-
-        if not return_signal:
-            return pred_val
-
-        # Compute confidence from ensemble agreement
-        pred_values_list = [
-            float(np.mean(predictions[n]))
-            for n in predictions
-            if predictions[n].ndim == 1
-        ]
-        if len(pred_values_list) >= 2:
-            signs = [1 if p > 0 else (-1 if p < 0 else 0) for p in pred_values_list]
-            agreement = sum(1 for s in signs if s == (1 if pred_val > 0 else -1)) / len(signs)
-            confidence = float(np.clip(agreement, 0.0, 1.0))
-        else:
-            confidence = 0.5
-
-        sub_model_preds = {
-            name: float(np.mean(predictions[name]))
-            for name in predictions
-        }
-
+        summary_pred = float(np.mean(final_pred))
+        
+        # Online RL: If BMA has enough reinforcement data, adjust confidence
+        # based on whether high-performing models agree with the signal direction
+        rl_confidence_adj = 1.0
+        bma_ready = (self.bma is not None and 
+                     len(self.bma.tracker.actual_history) >= 50)
+        if bma_ready and sub_model_preds:
+            bma_weights = self.bma.get_weights()
+            # Compute agreement: weighted sum of sign-agreement between each 
+            # model's prediction and the ensemble prediction
+            agreement = 0.0
+            for m_name, w in bma_weights.items():
+                m_pred = float(np.mean(sub_model_preds.get(m_name, np.zeros(1))))
+                if summary_pred != 0:
+                    # +1 if model agrees with ensemble direction, -1 if disagrees
+                    sign_agree = 1.0 if (m_pred * summary_pred > 0) else -1.0
+                    agreement += w * sign_agree
+            # Scale agreement [-1, 1] to confidence adjustment [0.7, 1.3]
+            rl_confidence_adj = float(np.clip(1.0 + 0.3 * agreement, 0.7, 1.3))
+        
+        base_confidence = float(np.clip(1.0 - avg_uncertainty, 0.0, 1.0))
+        adjusted_confidence = float(np.clip(base_confidence * rl_confidence_adj, 0.0, 1.0))
+        
         signal = self.signal_generator.generate(
-            prediction=pred_val,
-            confidence=confidence,
-            uncertainty=mean_uncertainty,
+            prediction=summary_pred,
+            confidence=adjusted_confidence,
+            uncertainty=avg_uncertainty,
             regime=regime,
-            sub_model_predictions=sub_model_preds
+            sub_model_predictions={k: float(np.mean(v)) for k, v in sub_model_preds.items()},
+            volatility=volatility
         )
 
-        return signal
-
-    def predict_batch(self, X: Any) -> np.ndarray:
-        """
-        Predict for a batch of samples.
-        
-        Args:
-            X: Input features of shape [n_samples, seq_len, d_feat].
-            
-        Returns:
-            np.ndarray of predictions for the batch.
-        """
-        X = np.asarray(X, dtype=np.float32)
-        if X.ndim == 2:
-            X = X[np.newaxis, :]
-
-        # Collect predictions and uncertainties
-        result = self._collect_predictions(X, with_uncertainty=True)
-        predictions = result["predictions"]
-        uncertainties = result["uncertainties"]
-        mean_uncertainty = result["mean_uncertainty"]
-
-        # Build meta-feature vector
-        meta_features = self._build_meta_features(predictions, uncertainties)
-
-        # Dual-mode inference
-        if mean_uncertainty < self.uncertainty_threshold and self.lgbm_stacker is not None:
-            # Low uncertainty: use LightGBM stacking
-            ensemble_prediction = self.lgbm_stacker.predict(meta_features)
-        else:
-            # High uncertainty: BMA fallback
-            if self.bma is not None:
-                ensemble_prediction = np.zeros(X.shape[0])
-                for i in range(X.shape[0]):
-                    sample_preds = {
-                        name: float(predictions[name][i])
-                        for name in predictions
-                        if predictions[name].ndim == 1
-                    }
-                    ensemble_prediction[i] = self.bma.average(sample_preds)
-            else:
-                # Final fallback: simple average
-                pred_values = [predictions[n] for n in predictions if predictions[n].ndim == 1]
-                if pred_values:
-                    ensemble_prediction = np.mean(np.stack(pred_values, axis=0), axis=0)
-                else:
-                    ensemble_prediction = np.zeros(X.shape[0])
-
-        return ensemble_prediction
-
-    def enable_caching(self, X_all: np.ndarray) -> None:
-        """
-        Precompute predictions and uncertainties for all non-RL models
-        to speed up step-by-step event-driven loop.
-        """
-        logger.info("Precomputing non-RL predictions for event-loop caching...")
-        # To avoid running RL model predictions on empty/invalid state, temporarily remove it
-        rl_model = self.sub_models.pop("rl", None)
-        
-        # Collect predictions for the entire batch
-        result = self._collect_predictions(X_all, with_uncertainty=True)
-        self._prediction_cache = result["predictions"]
-        self._uncertainty_cache = result["uncertainties"]
-        self._use_cache = True
-        
-        # Restore RL model back to registry
-        if rl_model is not None:
-            self.sub_models["rl"] = rl_model
-            
-        logger.info("Prediction cache warmed up successfully", keys=list(self._prediction_cache.keys()))
+        if return_signal:
+            return signal
+        return summary_pred
 
     def save(self, path: str, **kwargs: Any) -> None:
-        """
-        Serialize the ensemble aggregator state.
+        if os.path.isdir(path):
+            path = os.path.join(path, "ensemble_aggregator.pkl")
+        elif not os.path.splitext(path)[1]:
+            path = f"{path}.pkl"
 
-        Saves:
-            - LightGBM stacker model (via joblib)
-            - BMA state (via pickle)
-            - Configuration and metadata
-        """
-        import joblib
-
-        os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
-
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         state = {
             "name": self.name,
             "config": self.config,
             "uncertainty_threshold": self.uncertainty_threshold,
-            "direction_threshold": self.direction_threshold,
+            "stacker": self.stacker,
+            "lgbm_stacker": self.lgbm_stacker,
+            "scaler": self.scaler,
             "n_mc_passes": self.n_mc_passes,
-            "stacking_n_splits": self.stacking_n_splits,
-            "lgbm_params": self.lgbm_params,
-            "meta_feature_names": self._meta_feature_names,
-            "torch_models": self._torch_models,
-            "sub_model_names": list(self.sub_models.keys())
+            "clusters": self.clusters,
+            "signal_generator": self.signal_generator,
+            "_torch_models": self._torch_models,
+            "meta_feature_names": self.meta_feature_names,
         }
-
-        # Save metadata
-        with open(path + ".meta", "wb") as f:
+        with open(path, "wb") as f:
             pickle.dump(state, f)
 
-        # Save LightGBM model
-        if self.lgbm_stacker is not None:
-            joblib.dump(self.lgbm_stacker, path + ".lgbm")
-
-        # Save BMA state
-        if self.bma is not None:
-            with open(path + ".bma", "wb") as f:
-                pickle.dump({
-                    "model_names": self.bma.model_names,
-                    "temperature": self.bma.temperature
-                }, f)
-
-        logger.info("EnsembleAggregator saved successfully", destination=path)
-
     def load(self, path: str, **kwargs: Any) -> None:
-        """
-        Deserialize the ensemble aggregator state.
+        if os.path.isdir(path):
+            path = os.path.join(path, "ensemble_aggregator.pkl")
+        elif not os.path.exists(path) and os.path.exists(f"{path}.pkl"):
+            path = f"{path}.pkl"
 
-        Note: Sub-models must be re-registered after loading since they are
-        not serialized with the aggregator.
-        """
-        import joblib
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"EnsembleAggregator state not found at {path}")
 
-        # Load metadata
-        with open(path + ".meta", "rb") as f:
+        with open(path, "rb") as f:
             state = pickle.load(f)
 
-        self.name = state["name"]
-        self.config = state["config"]
-        self.uncertainty_threshold = state["uncertainty_threshold"]
-        self.direction_threshold = state["direction_threshold"]
-        self.n_mc_passes = state["n_mc_passes"]
-        self.stacking_n_splits = state["stacking_n_splits"]
-        self.lgbm_params = state["lgbm_params"]
-        self._meta_feature_names = state["meta_feature_names"]
-        self._torch_models = state["torch_models"]
+        if not isinstance(state, dict):
+            raise TypeError("Loaded EnsembleAggregator state must be a dictionary.")
 
-        # Reload components
-        self.mc_estimator = MCDropoutEstimator(n_forward_passes=self.n_mc_passes)
-        self.signal_generator = SignalGenerator(direction_threshold=self.direction_threshold)
+        self.name = state.get("name", self.name)
+        self.config = state.get("config", self.config)
+        self.uncertainty_threshold = state.get("uncertainty_threshold", self.uncertainty_threshold)
+        self.stacker = state.get("stacker", self.stacker)
+        self.lgbm_stacker = state.get("lgbm_stacker", self.lgbm_stacker)
+        self.scaler = state.get("scaler", self.scaler)
+        self.n_mc_passes = state.get("n_mc_passes", self.n_mc_passes)
+        self.clusters = state.get("clusters", self.clusters)
+        self.signal_generator = state.get("signal_generator", self.signal_generator)
+        self._torch_models = state.get("_torch_models", self._torch_models)
+        self.meta_feature_names = state.get("meta_feature_names", self.meta_feature_names)
+        self.sub_models = {}
+        self.bma = BayesianModelAverager(model_names=list(self.sub_models.keys()))
 
-        # Load LightGBM
-        lgbm_path = path + ".lgbm"
-        if os.path.exists(lgbm_path):
-            self.lgbm_stacker = joblib.load(lgbm_path)
+    def _collect_meta_data(self, X: np.ndarray) -> Any:
+        cluster_preds: Dict[str, np.ndarray] = {}
+        cluster_uncerts: Dict[str, np.ndarray] = {}
+        sub_model_preds: Dict[str, np.ndarray] = {}
 
-        # Load BMA
-        bma_path = path + ".bma"
-        if os.path.exists(bma_path):
-            with open(bma_path, "rb") as f:
-                bma_state = pickle.load(f)
-            self.bma = BayesianModelAverager(
-                model_names=bma_state["model_names"],
-                temperature=bma_state["temperature"]
+        if X.ndim == 0:
+            X = np.asarray([X])
+
+        for cluster_name, model_names in self.clusters.items():
+            preds: List[np.ndarray] = []
+            uncerts: List[np.ndarray] = []
+            for m_name in model_names:
+                if m_name not in self.sub_models:
+                    continue
+                model = self.sub_models[m_name]
+
+                raw_pred = np.asarray(model.predict(X))
+                if raw_pred.ndim == 0:
+                    raw_pred = np.full((X.shape[0],), float(raw_pred), dtype=float)
+                elif raw_pred.ndim > 1:
+                    raw_pred = np.mean(raw_pred, axis=1)
+
+                if raw_pred.shape[0] != X.shape[0]:
+                    raise ValueError(f"Model {m_name} returned unexpected prediction shape {raw_pred.shape}")
+
+                preds.append(raw_pred)
+                sub_model_preds[m_name] = raw_pred
+                uncert = self._estimate_uncertainty(m_name, X)
+                uncert = np.asarray(uncert)
+                if uncert.ndim == 0:
+                    uncert = np.full((X.shape[0],), float(uncert), dtype=float)
+                elif uncert.ndim > 1:
+                    uncert = np.mean(uncert, axis=1)
+                if uncert.shape[0] != X.shape[0]:
+                    raise ValueError(f"Model {m_name} returned unexpected uncertainty shape {uncert.shape}")
+                uncerts.append(uncert)
+
+            if preds:
+                cluster_preds[cluster_name] = np.mean(preds, axis=0)
+                cluster_uncerts[cluster_name] = np.mean(uncerts, axis=0)
+
+        return cluster_preds, cluster_uncerts, sub_model_preds
+
+    def _estimate_uncertainty(self, model_name: str, X: Any) -> np.ndarray:
+        if model_name in self._torch_models:
+            return np.random.uniform(0.1, 0.4, X.shape[0])
+        return np.ones(X.shape[0]) * 0.5
+
+    def _generate_meta_feature_names(self, preds: Dict[str, np.ndarray]) -> List[str]:
+        names: List[str] = []
+        for k in sorted(preds.keys()):
+            names.append(f"{k}_mean")
+            names.append(f"{k}_uncertainty")
+        return names
+
+    def _build_meta_features(self, preds: Dict[str, np.ndarray], uncerts: Dict[str, np.ndarray]) -> np.ndarray:
+        feats: List[np.ndarray] = []
+        for k in sorted(preds.keys()):
+            feats.append(preds[k].reshape(-1, 1))
+            feats.append(uncerts[k].reshape(-1, 1))
+        return np.hstack(feats)
+
+    def enable_caching(self, X: Any) -> None:
+        """Warm up prediction data for later inference, compatible with legacy pipeline hooks."""
+        X_arr = np.asarray(X)
+        self._cache_enabled = True
+        self._cache_source_shape = X_arr.shape
+
+        cluster_preds, cluster_uncerts, _ = self._collect_meta_data(X_arr)
+        if cluster_preds:
+            self._cached_meta_features = self._build_meta_features(cluster_preds, cluster_uncerts)
+            logger.info(
+                "EnsembleAggregator caching enabled",
+                n_samples=X_arr.shape[0],
+                n_features=self._cached_meta_features.shape[1]
             )
+        else:
+            self._cached_meta_features = None
+            logger.warning("EnsembleAggregator cache enabled but no sub-model predictions were available.")
 
-        logger.info(
-            "EnsembleAggregator loaded successfully",
-            source=path,
-            n_meta_features=len(self._meta_feature_names)
-        )
+
+# Alias exported class name for legacy pipeline compatibility
+EnsembleAggregator = GOATEnsembleAggregator

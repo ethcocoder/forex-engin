@@ -20,7 +20,10 @@ try:
     _lib_path = os.path.join(_base_dir, "models", "meta_learner", f"maml_speedups{_ext}")
     
     if os.path.exists(_lib_path):
-        _SPEEDUPS_LIB = ctypes.CDLL(_lib_path)
+        kwargs = {}
+        if sys.platform.startswith("win"):
+            kwargs["winmode"] = 0
+        _SPEEDUPS_LIB = ctypes.CDLL(_lib_path, **kwargs)
         
         _SPEEDUPS_LIB.maml_inner_loop_update.argtypes = [
             ctypes.POINTER(ctypes.c_double),

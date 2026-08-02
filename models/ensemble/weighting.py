@@ -7,6 +7,18 @@ import structlog
 
 logger = structlog.get_logger()
 
+# Regime-specific weighting multipliers for BMA fallback
+REGIME_MODIFIERS = {
+    # Regime 0: Low volatility trend -> Favor Temporal/Trend models, normal MAML/RL
+    0: {"temporal": 1.5, "maml": 1.0, "rl": 1.0},
+    # Regime 1: Mean reversion / ranging -> Favor RL, suppress Temporal (trends will fail)
+    1: {"temporal": 0.5, "maml": 1.0, "rl": 1.5},
+    # Regime 2: High volatility trend -> Favor MAML/Temporal, reduce RL (RL might take high risk)
+    2: {"temporal": 1.2, "maml": 1.2, "rl": 0.8},
+    # Regime 3: Chaotic / crash -> Suppress RL heavily, favor risk-averse MAML/Temporal
+    3: {"temporal": 0.8, "maml": 1.0, "rl": 0.3}
+}
+
 
 class DynamicWeightTracker:
     """
@@ -200,22 +212,38 @@ class BayesianModelAverager:
         """
         self.tracker.update(predictions_dict, actual_return)
 
-    def average(self, predictions_dict: Dict[str, float]) -> float:
+    def average(self, predictions_dict: Dict[str, float], regime: int = 0) -> float:
         """
-        Compute BMA-weighted average of sub-model predictions.
+        Compute BMA-weighted average of sub-model predictions with regime weight modifiers.
 
         Args:
             predictions_dict: Mapping of model_name -> predicted return.
+            regime: The active market regime index.
 
         Returns:
             Weighted average prediction as a float.
         """
         weights = self.get_weights()
 
+        # Apply regime weight modifiers
+        modifiers = REGIME_MODIFIERS.get(regime, {})
+        modified_weights = {}
+        for name in self.model_names:
+            base_w = weights.get(name, 0.0)
+            mod = modifiers.get(name, 1.0)
+            modified_weights[name] = base_w * mod
+
+        # Re-normalize modified weights to sum to 1.0
+        total_w = sum(modified_weights.values())
+        if total_w > 1e-12:
+            modified_weights = {n: w / total_w for n, w in modified_weights.items()}
+        else:
+            modified_weights = {n: 1.0 / len(self.model_names) for n in self.model_names}
+
         weighted_sum = 0.0
         for name in self.model_names:
             pred = predictions_dict.get(name, 0.0)
-            weighted_sum += weights.get(name, 0.0) * pred
+            weighted_sum += modified_weights.get(name, 0.0) * pred
 
         return float(weighted_sum)
 
