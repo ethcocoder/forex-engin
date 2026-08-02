@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
+import { ArrowUp, ArrowDown } from "lucide-react"
 import { useEvents } from "../hooks"
-import { dirArrow, dirClass, fmtNum, fmtPct, fmtTs } from "../format"
+import { dirClass, fmtNum, fmtPct, fmtTs } from "../format"
 
 export default function Signals(): React.JSX.Element {
   const signals = useEvents("signal")
@@ -77,10 +78,13 @@ export default function Signals(): React.JSX.Element {
                 {filtered.map((s, i) => {
                   const d = s.data
                   const subs = (d.sub_models as Record<string, number>) ?? {}
+                  const dir = Number(d.direction ?? 0)
                   return (
                     <tr key={i}>
                       <td className="num">{fmtTs(s.ts)}</td>
-                      <td className={`num ${dirClass(d.direction)}`}>{dirArrow(d.direction)}</td>
+                      <td className={`num ${dirClass(d.direction)}`}>
+                        {dir > 0 ? <ArrowUp size={16} /> : dir < 0 ? <ArrowDown size={16} /> : "—"}
+                      </td>
                       <td className="num">{fmtNum(d.magnitude, 3)}</td>
                       <td className="num">{fmtPct((d.confidence as number) * 100)}</td>
                       <td className="num">{fmtNum(d.uncertainty, 3)}</td>

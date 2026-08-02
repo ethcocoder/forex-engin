@@ -105,3 +105,15 @@ Thumbs.db
 *.so
 *.log
 __pycache__/
+
+# Desktop app
+engine-server/.venv/
+frontend/node_modules/
+dist/
+build/
+*.local
+
+# Desktop (Electron)
+desktop/node_modules/
+desktop/out/
+desktop/*.log

@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react"
 import { NavLink, Outlet, useNavigate } from "react-router-dom"
+import { LayoutDashboard, Activity, ArrowLeftRight, FileText, Settings2, Play, Square } from "lucide-react"
 import { useLatest } from "../hooks"
 import "../styles/app.css"
 
 const NAV = [
-  { to: "/", label: "Dashboard", end: true },
-  { to: "/signals", label: "Signals" },
-  { to: "/trades", label: "Trades" },
-  { to: "/reports", label: "Reports" },
-  { to: "/settings", label: "Settings" }
+  { to: "/", label: "Dashboard", end: true, icon: LayoutDashboard },
+  { to: "/signals", label: "Signals", icon: Activity },
+  { to: "/trades", label: "Trades", icon: ArrowLeftRight },
+  { to: "/reports", label: "Reports", icon: FileText },
+  { to: "/settings", label: "Settings", icon: Settings2 }
 ]
 
 function fmt(value: number | undefined, digits = 2): string {
@@ -20,20 +21,9 @@ function pnlClass(v: number | undefined): string {
   return v > 0 ? "pos" : v < 0 ? "neg" : ""
 }
 
-const SIM_PILL: Record<string, { label: string; cls: string }> = {
-  idle: { label: "IDLE", cls: "" },
-  starting: { label: "STARTING", cls: "busy" },
-  loading: { label: "LOADING", cls: "busy" },
-  running: { label: "RUNNING", cls: "busy" },
-  stopping: { label: "STOPPING", cls: "busy" },
-  done: { label: "DONE", cls: "ok" },
-  error: { label: "ERROR", cls: "err" }
-}
-
 export default function Layout(): React.JSX.Element {
   const account = useLatest("account")
   const positions = useLatest("positions")
-  const signal = useLatest("signal")
   const engineStatus = useLatest("engine.status")
   const simStatus = useLatest("sim.status") ?? useLatest("status")
   const [busy, setBusy] = useState(false)
@@ -49,16 +39,12 @@ export default function Layout(): React.JSX.Element {
   }, [simStatus])
 
   const a = account?.data as Record<string, unknown> | undefined
-  const connected = engineStatus?.data?.state === "connected"
   const balance = typeof a?.cash === "number" ? (a.cash as number) : undefined
   const equity = typeof a?.equity === "number" ? (a.equity as number) : undefined
   const pnl = typeof a?.daily_pnl === "number" ? (a.daily_pnl as number) : undefined
 
   const posData = (positions?.data ?? {}) as Record<string, { size?: number }>
   const posCount = Object.keys(posData).length
-  const notional = Object.values(posData).reduce((sum, p) => sum + Math.abs(Number(p.size ?? 0)), 0)
-  const regime = Number((signal?.data as Record<string, unknown> | undefined)?.regime ?? NaN)
-  const pill = SIM_PILL[simState] ?? SIM_PILL.idle!
 
   const onRun = async (): Promise<void> => {
     if (busy || ["running", "starting"].includes(simState)) return
@@ -112,54 +98,71 @@ export default function Layout(): React.JSX.Element {
         <div className="brand wordmark">
           FOREX<span className="b">DESK</span>
         </div>
+
+        <div className="sidebar-sep" />
+
         <nav className="nav">
-          {NAV.map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => (isActive ? "active" : "")}>
-              {n.label}
-            </NavLink>
-          ))}
+          {NAV.slice(0, 4).map((n) => {
+            const Icon = n.icon
+            return (
+              <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => (isActive ? "active" : "")}>
+                <Icon />
+                {n.label}
+              </NavLink>
+            )
+          })}
         </nav>
-        <div className="muted" style={{ padding: "10px", fontSize: 11 }}>
-          <span className={`status-dot ${connected ? "ok" : "bad"}`} />
-          {connected ? "Engine connected" : "Engine offline"}
+
+        <div className="sidebar-sep" />
+
+        <nav className="nav">
+          {NAV.slice(4).map((n) => {
+            const Icon = n.icon
+            return (
+              <NavLink key={n.to} to={n.to} className={({ isActive }) => (isActive ? "active" : "")}>
+                <Icon />
+                {n.label}
+              </NavLink>
+            )
+          })}
+        </nav>
+
+        <div className="sidebar-footer">
+          <div className="version">v0.1.0</div>
         </div>
       </aside>
+
       <div className="main">
         <div className="topbar">
           <div className="stat">
             <span className="lbl">Balance</span>
             <span className="val num">${fmt(balance)}</span>
           </div>
-          <div className="stat">
+          <div className="stat sep">
             <span className="lbl">Equity</span>
             <span className="val num">${fmt(equity)}</span>
           </div>
-          <div className="stat">
+          <div className="stat sep">
             <span className="lbl">Daily PnL</span>
             <span className={`val num ${pnlClass(pnl)}`}>{pnl == null ? "—" : `${pnl >= 0 ? "+" : ""}$${fmt(pnl)}`}</span>
           </div>
-          <div className="stat">
-            <span className="lbl">Open Positions</span>
-            <span className="val num">{posCount === 0 ? "—" : `${posCount} · ${fmt(notional, 0)}`}</span>
+          <div className="stat sep">
+            <span className="lbl">Positions</span>
+            <span className="val num">{posCount === 0 ? "—" : String(posCount)}</span>
           </div>
-          <div className="stat">
-            <span className="lbl">Regime</span>
-            <span className="val num">{Number.isNaN(regime) ? "—" : String(regime)}</span>
-          </div>
+
           <div className="spacer" />
-          <div className={`pill ${pill.cls}`}>{pill.label}</div>
-          <div className="badge">SIMULATION</div>
-          {connected && (
-            <>
-              <button className="btn" disabled={busy || ["running", "starting"].includes(simState)} onClick={() => void onRun()}>
-                Run
-              </button>
-              <button className="btn danger" disabled={busy || !["running", "starting", "stopping"].includes(simState)} onClick={() => void onStop()}>
-                Stop
-              </button>
-            </>
-          )}
+
+          <div className="actions">
+            <button className="icon-btn primary" title="Run simulation (Ctrl+R)" disabled={busy || ["running", "starting"].includes(simState)} onClick={() => void onRun()}>
+              <Play />
+            </button>
+            <button className="icon-btn danger" title="Stop simulation (Ctrl+.)" disabled={busy || !["running", "starting", "stopping"].includes(simState)} onClick={() => void onStop()}>
+              <Square />
+            </button>
+          </div>
         </div>
+
         <div className="content">
           <Outlet />
         </div>

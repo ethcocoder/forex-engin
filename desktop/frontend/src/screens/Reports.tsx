@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { Download } from "lucide-react"
 import type { TearSheet } from "../../electron/ipc"
 import { useLatest } from "../hooks"
 import { fmtNum, fmtPct } from "../format"
@@ -42,10 +43,10 @@ export default function Reports(): React.JSX.Element {
           <h3>Performance Report</h3>
           <div className="filters">
             <button className="btn ghost" disabled={!sheet || empty} onClick={() => sheet && void window.api.reports.export("csv").then((r) => download(r.filename, r.content))}>
-              Export CSV
+              <Download size={14} /> Export CSV
             </button>
             <button className="btn ghost" disabled={!sheet || empty} onClick={() => sheet && void window.api.reports.export("json").then((r) => download(r.filename, r.content))}>
-              Export JSON
+              <Download size={14} /> Export JSON
             </button>
           </div>
         </div>

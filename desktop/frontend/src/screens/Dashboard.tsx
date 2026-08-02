@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
+import { ArrowUp, ArrowDown } from "lucide-react"
 import { useEvents, useLatest } from "../hooks"
-import { dirArrow, dirClass, fmtNum, fmtPct, fmtTs } from "../format"
+import { dirClass, fmtNum, fmtPct, fmtTs } from "../format"
 import EquityChart, { type EquityPoint } from "../components/EquityChart"
 
 interface Metric {
@@ -30,14 +31,12 @@ function useMetrics(lastEquity?: number): Metric[] {
   return [
     { label: "Equity", value: liveEquity != null ? `$${fmtNum(liveEquity)}` : lastEquity != null ? `$${fmtNum(lastEquity)}` : "—" },
     {
-      label: "Daily PnL",
+      label: "P&L Today",
       value: pnl == null ? "—" : `${pnl >= 0 ? "+" : ""}$${fmtNum(pnl)}`,
       cls: pnl == null ? "" : pnl > 0 ? "pos" : "neg"
     },
     { label: "Sharpe", value: ts?.sharpe == null ? "—" : fmtNum(ts.sharpe, 2) },
-    { label: "Max DD", value: ts?.max_drawdown_pct == null ? "—" : fmtPct(ts.max_drawdown_pct) },
-    { label: "Win Rate", value: win == null ? "—" : fmtPct(win * 100) },
-    { label: "Trades", value: ts?.total_trades == null ? "—" : String(ts.total_trades) }
+    { label: "Win Rate", value: win == null ? "—" : fmtPct(win * 100) }
   ]
 }
 
@@ -78,10 +77,13 @@ function Ticker(): React.JSX.Element {
   if (!signal) return <div className="empty">No signal yet — start a simulation.</div>
   const d = signal.data as Record<string, unknown>
   const conf = Number(d.confidence ?? 0)
+  const dir = Number(d.direction ?? 0)
   const cls = conf >= 0.6 ? "" : "warn"
   return (
     <div className="ticker">
-      <span className={`tick-dir num ${dirClass(d.direction)}`}>{dirArrow(d.direction)}</span>
+      <span className={`tick-dir num ${dirClass(dir)}`}>
+        {dir > 0 ? <ArrowUp /> : dir < 0 ? <ArrowDown /> : null}
+      </span>
       <div className="tick-main">
         <span className="tick-mag num">{fmtNum(d.magnitude, 3)}</span>
         <span className="tick-sub muted">
@@ -146,10 +148,13 @@ export default function Dashboard(): React.JSX.Element {
                 {trades.slice(0, 8).map((t, i) => {
                   const d = t.data
                   const pnl = Number(d.pnl ?? 0)
+                  const dir = Number(d.direction ?? 0)
                   return (
                     <tr key={i}>
                       <td className="num">{fmtTs(t.ts)}</td>
-                      <td className={`num ${dirClass(d.direction)}`}>{dirArrow(d.direction)}</td>
+                      <td className={`num ${dirClass(d.direction)}`}>
+                        {dir > 0 ? <ArrowUp size={14} /> : dir < 0 ? <ArrowDown size={14} /> : "—"}
+                      </td>
                       <td className={`num ${pnl > 0 ? "pos" : pnl < 0 ? "neg" : ""}`}>{pnl >= 0 ? "+" : ""}{fmtNum(pnl)}</td>
                       <td>{String(d.exit_reason ?? "—")}</td>
                     </tr>
@@ -179,10 +184,13 @@ export default function Dashboard(): React.JSX.Element {
               <tbody>
                 {signals.slice(0, 8).map((s, i) => {
                   const d = s.data
+                  const dir = Number(d.direction ?? 0)
                   return (
                     <tr key={i}>
                       <td className="num">{fmtTs(s.ts)}</td>
-                      <td className={`num ${dirClass(d.direction)}`}>{dirArrow(d.direction)}</td>
+                      <td className={`num ${dirClass(d.direction)}`}>
+                        {dir > 0 ? <ArrowUp size={14} /> : dir < 0 ? <ArrowDown size={14} /> : "—"}
+                      </td>
                       <td className="num">{fmtNum(d.confidence, 3)}</td>
                       <td className="num">{String(d.regime ?? "—")}</td>
                     </tr>

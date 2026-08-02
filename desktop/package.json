@@ -94,11 +94,14 @@
     "electron@43.2.0": true
   },
   "dependencies": {
-    "@fontsource/bodoni-moda": "^5.3.0",
-    "@fontsource/fragment-mono": "^5.3.0",
-    "@fontsource/schibsted-grotesk": "^5.3.0",
+    "@fontsource/cormorant-garamond": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/outfit": "^5.3.0",
+    "@fontsource/playfair-display": "^5.3.0",
+    "@fontsource/plus-jakarta-sans": "^5.3.0",
     "better-sqlite3": "^13.0.2",
     "electron-updater": "^6.8.9",
+    "lucide-react": "^1.28.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2",

@@ -808,6 +808,547 @@ default `http://127.0.0.1:8737`; audit DB at `~/.config/forex-desk/audit.db`.
 
 ---
 
+## Phase 6 — "Private Wealth" Major UI Overhaul
+
+**Goal:** Transform the UI from a functional trading terminal into a luxurious private wealth interface. Every pixel must communicate exclusivity, precision, and trust. The feel is: Bremont watch face meets Bloomberg terminal meets private banking lobby.
+
+**Starting state:** Phase 5 complete. Current design is "Black Ink, One Blue" — monochrome ink ramp with blue wordmark only. Phase 6 keeps the dark identity but adds glass morphism, premium typography, and professional polish.
+
+**Design DNA:** Deep obsidian glass + polished chrome typography + whisper-thin precision lines. Zero decoration. Every element earns its place.
+
+---
+
+### 6.1 Typography System — 3 Tiers
+
+| Role | Font | Weight | Use |
+|------|------|--------|-----|
+| **Brand** | `Cormorant Garamond` | 600 (SemiBold) | FOREX DESK wordmark only |
+| **Display** | `Outfit` | 300/400/500 | Headlines, metric values, hero numbers |
+| **Mono** | `JetBrains Mono` | 400/500 | All data, tables, charts, prices |
+
+**Why these fonts:**
+- **Cormorant Garamond**: High-contrast serif with luxury DNA (used by LVMH, Rolex web). The "D" in DESK becomes a logo mark.
+- **Outfit**: Geometric sans with perfect optical balance at large sizes. Clean but warm — not cold like Inter.
+- **JetBrains Mono**: Industry standard for financial data. Tabular figures built-in.
+
+**Type Scale:**
+```
+Hero:    Outfit 300, 48px / 1.0   (equity headline)
+Display: Outfit 400, 28px / 1.2   (metric values)
+Title:   Outfit 500, 14px / 1.0   (section titles, tracked)
+Body:    Outfit 400, 13px / 1.5   (labels, descriptions)
+Mono:    JetBrains 400, 13px      (data cells)
+Mono lg: JetBrains 500, 18px      (metric numbers)
+Caption: JetBrains 400, 11px      (timestamps, small data)
+```
+
+---
+
+### 6.2 Color System — Obsidian Glass
+
+Keep the ink ramp but add glass layers:
+
+```css
+/* Glass layers */
+--glass-0: rgba(5, 7, 10, 0.92);      /* Deep background */
+--glass-1: rgba(15, 20, 25, 0.85);    /* Cards */
+--glass-2: rgba(25, 32, 40, 0.75);    /* Elevated surfaces */
+--glass-3: rgba(35, 45, 55, 0.65);    /* Modals, dropdowns */
+
+/* Glass border */
+--glass-border: rgba(255, 255, 255, 0.06);
+--glass-border-hover: rgba(255, 255, 255, 0.12);
+--glass-border-active: rgba(255, 255, 255, 0.18);
+
+/* Chrome accents */
+--chrome: rgba(255, 255, 255, 0.85);
+--chrome-dim: rgba(255, 255, 255, 0.45);
+--chrome-faint: rgba(255, 255, 255, 0.15);
+
+/* Wealth accent (optional — for active states) */
+--wealth: linear-gradient(135deg, #2E7CF6 0%, #5B9BF7 100%);
+```
+
+---
+
+### 6.3 Sidebar — Static, Luxurious
+
+**Width:** Fixed 240px (never collapses)
+**Background:** `--glass-0` with `backdrop-filter: blur(20px)`
+**Border right:** 1px `--glass-border`
+
+```
+┌────────────────────────────────┐
+│                                │
+│   C O R M O R A N T            │  ← Cormorant Garamond 600, 22px
+│   FOREX  DESK                  │  ← "DESK" in --brand blue
+│                                │
+│   ─────────────────────────    │  ← 1px glass border
+│                                │
+│   ◎  Dashboard                 │  ← Outfit 400, 13px, icons 18px
+│   ◎  Signals                   │     spacing: 44px between items
+│   ◎  Trades                    │     active: glass-2 bg + chrome text
+│   ◎  Reports                   │     hover: glass-1 bg
+│                                │
+│                                │
+│   ─────────────────────────    │
+│                                │
+│   ⚙  Settings                  │  ← pinned to bottom
+│   ─────────────────────────    │
+│   v0.1.0                       │  ← JetBrains 400, 10px, chrome-dim
+│                                │
+└────────────────────────────────┘
+```
+
+**Nav item anatomy:**
+- Height: 44px
+- Padding: 0 16px
+- Icon: 18px, stroke-width 1.5, `chrome-dim` → `chrome` on hover/active
+- Label: Outfit 400, 13px, `chrome-dim` → `chrome` on hover/active
+- Active: `--glass-2` background, 4px left border in `--brand`
+- Gap between icon and label: 12px
+
+**Changes from current:**
+- Remove "Engine connected" / "Engine offline" status from sidebar (was "Connected v0.1.0")
+- Settings pinned to bottom with divider above
+- Add Lucide icons to each nav item
+- Version number at bottom
+
+**Lucide icon mapping:**
+| Nav Item | Icon |
+|----------|------|
+| Dashboard | `LayoutDashboard` |
+| Signals | `Activity` |
+| Trades | `ArrowLeftRight` |
+| Reports | `FileText` |
+| Settings | `Settings2` |
+
+---
+
+### 6.4 Topbar — Hero Numbers
+
+**Height:** 80px (generous breathing room)
+**Background:** `--glass-0` with `backdrop-filter: blur(20px)`
+**Border bottom:** 1px `--glass-border`
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                                                                          │
+│   $10,891.42                    +$656.40              2 active          │
+│   ════════════                   ════════              ═══════           │
+│   Balance                       Today's P&L           Positions          │
+│                                                                          │
+│                                    [ ▶ ]  [ ■ ]                          │
+│                                    Run    Stop                            │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+**Each stat block:**
+- Value: JetBrains Mono 500, 28px, `--chrome`
+- Label: Outfit 400, 10px, tracked uppercase, `--chrome-dim`
+- Underline: 2px, `--glass-border` → `--brand` when value changes
+- Separator: 1px vertical, `--glass-border`, height 40px
+
+**Run/Stop buttons:**
+- Icon-only (Lucide `Play` / `Square`)
+- 36px square, glass-2 background, glass-border
+- Hover: glass-3, brand glow
+- Disabled: opacity 0.3
+
+**Removed:**
+- SIMULATION badge
+- IDLE/RUNNING/DONE pill
+- Regime stat (move to Dashboard signal ticker)
+
+---
+
+### 6.5 Dashboard — Compact Metrics, Hero Chart
+
+#### Metric Row (4 cards)
+
+```
+┌────────────────┬────────────────┬────────────────┬────────────────┐
+│                │                │                │                │
+│    $10,891     │    +$656.40    │     1.24       │    44.5%       │
+│    ════════    │    ════════    │    ════════    │    ════════    │
+│    EQUITY      │    P&L TODAY   │    SHARPE      │    WIN RATE    │
+│                │                │                │                │
+└────────────────┴────────────────┴────────────────┴────────────────┘
+```
+
+**Card anatomy:**
+- Height: 80px (compact — down from ~100px)
+- Background: `--glass-1`
+- Border: 1px `--glass-border`
+- Border-radius: 8px
+- Padding: 16px 20px
+- Value: JetBrains Mono 500, 24px, `--chrome`
+- Label: Outfit 400, 9px, tracked uppercase, `--chrome-dim`
+- Underline: 1px, `--glass-border`
+- Hover: border-color `--glass-border-hover`
+- No icons on cards (cleaner)
+
+**Change from current:** Remove Max DD and Trades from top metrics (move Trades to chart area, Max DD to chart label). Show only 4 metrics: Equity, P&L, Sharpe, Win Rate.
+
+#### Equity Chart (Hero)
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                                                                      │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │                          ╱╲                                   │  │
+│  │            ╱╲           ╱  ╲         ╱╲                      │  │
+│  │    ╱╲     ╱  ╲    ╱╲  ╱    ╲  ╱╲  ╱  ╲                     │  │
+│  │───╱──╲───╱────╲──╱──╲╱──────╲╱──╲╱────╲───                  │  │
+│  │  ╱    ╲╱      ╲╱                  ╲     ╲                   │  │
+│  │ ╱                                   ╲    │                   │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                      │
+│  MIN $9,200          MAX $11,400          NOW $10,891    DD 3.2%    │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+**Chart styling:**
+- Background: `--glass-1`
+- Line: 2px, `--chrome` (white, not blue — luxury feel)
+- Area fill: subtle gradient from `rgba(255,255,255,0.08)` to transparent
+- Drawdown shading: `rgba(255,255,255,0.04)` below max line
+- Grid: none (clean)
+- Labels: JetBrains Mono 400, 10px, `--chrome-dim`
+- Height: 240px
+- Border: 1px `--glass-border`
+- Border-radius: 8px
+
+#### Signal Ticker (Compact)
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                                                                      │
+│   ←  BUY     0.00342     72.4% conf     regime 2     uncertainty   │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+- Single row, horizontal layout
+- Direction arrow: Lucide `ArrowUp`/`ArrowDown`, 20px, `--pos`/`--neg`
+- Magnitude: JetBrains Mono 500, 18px
+- Stats: JetBrains Mono 400, 12px, `--chrome-dim`
+
+#### Recent Trades (Compact Table)
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                                                                      │
+│  TIME          DIR    ENTRY       EXIT        PNL         REASON     │
+│  ─────────────────────────────────────────────────────────────────── │
+│  14:32:05      ↑      1.08921     1.09234     +$312.40    decay      │
+│  14:28:12      ↓      1.09102     1.08945     +$157.20    reversal   │
+│  14:21:44      ↑      1.08876     1.08654     -$221.60    stop       │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+- Row height: 36px
+- Sticky header with `backdrop-filter: blur(8px)`
+- Hover: `--glass-2` background
+- PnL: colored bar behind value (2px height, `--pos`/`--neg` at 20% opacity)
+
+---
+
+### 6.6 Signals Screen — Direction as Hero
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                                                                      │
+│   FILTERS                                                            │
+│   [ All regimes ▾ ]    [ Conf ≥ 0.50 ]                              │
+│                                                                      │
+│   ─────────────────────────────────────────────────────────────────  │
+│                                                                      │
+│   TIME        DIR      MAGNITUDE    CONFIDENCE    REGIME   SUB-MODEL │
+│   ─────────────────────────────────────────────────────────────────  │
+│   14:32:05    ←        0.00342      72.4%         2        ████░░   │
+│   14:28:12    →        0.00187      45.2%         1        ██░░░░   │
+│   14:21:44    ↑        0.00456      89.1%         3        ██████   │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+- Direction: Large Lucide icons, 24px, colored
+- Sub-model bars: 4px height, `--chrome` fill, `--glass-2` track
+- Filters: glass-2 background inputs
+
+---
+
+### 6.7 Trades Screen — PnL Visualization
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                                                                      │
+│   FILTERS                                                            │
+│   [ All reasons ▾ ]    [ All pairs ▾ ]         1,035 trades  Σ+$12k │
+│                                                                      │
+│   ─────────────────────────────────────────────────────────────────  │
+│                                                                      │
+│   TIME      PAIR       DIR    SIZE     ENTRY      EXIT       PNL     │
+│   ─────────────────────────────────────────────────────────────────  │
+│   14:32     EUR/USD    ↑      0.10     1.08921    1.09234    +312    │
+│                                         ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░   │
+│   14:28     GBP/USD    ↓      0.05     1.26543    1.26201    +171    │
+│                                         ▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░   │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+- PnL column: value + tiny horizontal bar (proportional to max trade)
+- Bar: 2px height, `--pos`/`--neg` at 30% opacity
+- Entry/Exit: JetBrains Mono with 5 decimals
+
+---
+
+### 6.8 Reports — Tear Sheet as Document
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                                                                      │
+│   PERFORMANCE REPORT                    [ ↓ CSV ]  [ ↓ JSON ]        │
+│                                                                      │
+│   ┌────────────────────────────────────────────────────────────────┐ │
+│   │                                                                │ │
+│   │   FOREX DESK — PERFORMANCE TEAR SHEET                        │ │
+│   │   ════════════════════════════════════                        │ │
+│   │                                                                │ │
+│   │   SUMMARY                                                     │ │
+│   │   ────────                                                    │ │
+│   │   Total Return      -30.33%                                   │ │
+│   │   Sharpe Ratio       1.24                                     │ │
+│   │   Max Drawdown      31.94%                                    │ │
+│   │   Win Rate          44.5%                                     │ │
+│   │   Total Trades      1,035                                     │ │
+│   │                                                                │ │
+│   └────────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+- Document feel: `--glass-1` background, generous padding
+- Typography: Outfit for headings, JetBrains for numbers
+- Export buttons: Lucide `Download` icon, ghost style
+
+---
+
+### 6.9 Settings — Grouped, Visual
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                                                                      │
+│   ⚙ ENGINE                                                          │
+│   ─────────────────────────────────────────────────────────────────  │
+│   Engine URL        [ http://127.0.0.1:8737            ]  [Connect] │
+│   Status            ● Engine online v0.1.0 · data ready             │
+│   Broker            Paper                                            │
+│   God Mode          [══════○]  enabled                               │
+│                                                                      │
+│   💰 ACCOUNT                                                         │
+│   ─────────────────────────────────────────────────────────────────  │
+│   Initial Balance   [ $10,000                  ]  [Save]             │
+│                                                                      │
+│   📊 MARKET                                                          │
+│   ─────────────────────────────────────────────────────────────────  │
+│   Pairs             [✓] EUR/USD  [✓] GBP/USD  [ ] USD/JPY           │
+│   Sim Pair          [ EUR/USD ▾ ]                                    │
+│                                                                      │
+│   ⚠ RISK                                                             │
+│   ─────────────────────────────────────────────────────────────────  │
+│   Kelly Fraction    [ 0.15 ]    Max Risk %    [ 0.75 ]              │
+│   ─────────────────────────────────────────────────────────────────  │
+│   Daily DD Limit    [ 3.0% ]    Weekly DD     [ 6.0% ]              │
+│   Monthly DD Limit  [ 10.0% ]                                      │
+│                                                                      │
+│   📦 DATA                                                            │
+│   ─────────────────────────────────────────────────────────────────  │
+│   Status            Ready                                           │
+│   [ Prepare Data ]                                                  │
+│                                                                      │
+│   🔧 APP                                                             │
+│   ─────────────────────────────────────────────────────────────────  │
+│   Minimize to tray  [══════○]                                        │
+│   [ Re-run onboarding ]                                             │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+- Section icons: Lucide, 16px, `--chrome-dim`
+- Grouped cards: each section is a glass card
+- Toggle: custom switch with `--brand` when on
+- Inputs: glass-2 background, glass-border, focus: `--brand` ring
+
+---
+
+### 6.10 Micro-Interactions & Polish
+
+| Element | Interaction |
+|---------|-------------|
+| **Nav items** | 150ms ease: background, color, border-left |
+| **Buttons** | 150ms ease: background, border-color, transform (1px down on click) |
+| **Cards** | 200ms ease: border-color on hover |
+| **Charts** | Points appear with 100ms stagger on load |
+| **Metric values** | Count-up animation on value change (500ms) |
+| **Tables** | Row hover: background fade in 100ms |
+| **Toggles** | Knob slides 200ms cubic-bezier(0.16, 1, 0.3, 1) |
+| **Tooltips** | Fade in 100ms on icon hover |
+| **Scrollbars** | Thin (6px), fade in on scroll, fade out after 1s |
+
+---
+
+### 6.11 Glass Effect Implementation
+
+```css
+.glass {
+  background: var(--glass-1);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+}
+
+.glass-elevated {
+  background: var(--glass-2);
+  backdrop-filter: blur(30px);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+}
+
+/* Blur layers for depth */
+.sidebar { backdrop-filter: blur(20px); }
+.topbar { backdrop-filter: blur(20px); }
+.card { backdrop-filter: blur(10px); }
+.modal { backdrop-filter: blur(40px); }
+```
+
+---
+
+### 6.12 Spacing Scale
+
+```css
+--sp-1: 4px;
+--sp-2: 8px;
+--sp-3: 12px;
+--sp-4: 16px;
+--sp-5: 20px;
+--sp-6: 24px;
+--sp-8: 32px;
+--sp-10: 40px;
+--sp-12: 48px;
+```
+
+---
+
+### 6.13 Files to Create/Modify
+
+| File | Action | Description |
+|------|--------|-------------|
+| `desktop/package.json` | Modify | Add `lucide-react`, `@fontsource/cormorant-garamond`, `@fontsource/outfit` |
+| `desktop/frontend/src/styles/tokens.css` | **Rewrite** | Glass system, new fonts, spacing scale, chrome palette |
+| `desktop/frontend/src/styles/app.css` | **Rewrite** | All component styles, glass effects, new layout |
+| `desktop/frontend/src/components/Layout.tsx` | **Rewrite** | Static sidebar, icon nav, hero topbar |
+| `desktop/frontend/src/screens/Dashboard.tsx` | **Rewrite** | Compact metrics, hero chart, signal ticker |
+| `desktop/frontend/src/screens/Signals.tsx` | Modify | Direction icons, glass filters |
+| `desktop/frontend/src/screens/Trades.tsx` | Modify | PnL bars, compact layout |
+| `desktop/frontend/src/screens/Reports.tsx` | Modify | Document style, export icons |
+| `desktop/frontend/src/screens/Settings.tsx` | **Rewrite** | Grouped sections, visual layout |
+| `desktop/frontend/src/screens/Setup.tsx` | Modify | Match new glass style |
+| `desktop/frontend/src/components/EquityChart.tsx` | Modify | White line, glass labels |
+| `desktop/frontend/src/components/Markdown.tsx` | Modify | Match new typography |
+
+---
+
+### 6.14 Dependencies to Install
+
+```bash
+npm install lucide-react @fontsource/cormorant-garamond @fontsource/outfit
+```
+
+Remove old fonts:
+```bash
+npm uninstall @fontsource/schibsted-grotesk @fontsource/bodoni-moda @fontsource/fragment-mono
+```
+
+---
+
+### 6.15 Verification Checklist
+
+1. `npm run typecheck` + `npm run build` clean
+2. All 6 screens render correctly
+3. Glass effects visible (backdrop-filter working)
+4. Fonts loaded (Cormorant, Outfit, JetBrains)
+5. Lucide icons rendering
+6. Sidebar static at 240px
+7. No "Connected" text in sidebar
+8. Settings pinned to bottom
+9. Metric cards compact (80px height)
+10. Chart has white line on glass background
+11. Tables have compact rows (36px)
+12. All interactions smooth (no jank)
+13. Dark mode only (no light theme)
+
+---
+
+### 6.16 Current State (Aug 2, 2026)
+
+**Phase 6 has been APPROVED but NOT STARTED.**
+
+The following changes were made in Phase 5.5 (between Phase 5 and Phase 6 approval):
+- Auto-start engine server from Electron main process (`main.ts` — `startEngine()` function)
+- Native Electron menu bar removed (`Menu.setApplicationMenu(null)`)
+- SIMULATION badge and IDLE pill removed from topbar
+- Engine status dot moved to sidebar
+
+**Engine auto-start logic (in `main.ts`):**
+- `findEnginePath()` — searches for `server.py` in exe dir, userData, and hardcoded path
+- `startEngine()` — spawns `.venv/bin/python server.py` in engine-server directory
+- `stopEngine()` — kills the process on app quit
+- Engine process managed via `child_process.spawn`
+
+**What works now:**
+- Electron app launches, auto-starts engine server
+- Engine connects, sim runs
+- All 5 screens functional
+- Audit persistence working
+- No native menu bar
+- No SIMULATION badge or IDLE pill
+
+**What Phase 6 will change:**
+- Complete visual overhaul to luxurious glass design
+- New typography system (Cormorant + Outfit + JetBrains)
+- Lucide icons throughout
+- Static sidebar with icons
+- Hero topbar with icon buttons
+- Compact metric cards
+- Glass morphism effects
+- Micro-interactions
+
+---
+
+### 6.17 Implementation Order
+
+1. **Install deps** — lucide-react, new fonts, remove old fonts
+2. **tokens.css** — Glass system, fonts, spacing, chrome palette
+3. **app.css** — Complete rewrite with glass components
+4. **Layout.tsx** — Sidebar + topbar rewrite
+5. **Dashboard.tsx** — Metrics + chart rewrite
+6. **EquityChart.tsx** — White line, glass labels
+7. **Signals.tsx** — Icon updates
+8. **Trades.tsx** — PnL bars, compact
+9. **Reports.tsx** — Document style
+10. **Settings.tsx** — Grouped sections
+11. **Setup.tsx** — Glass style match
+12. **Markdown.tsx** — Typography match
+13. **Verify** — typecheck + build + visual check
+
+---
+
 ## Log
 
 | Date | Phase | What |
@@ -822,3 +1363,5 @@ default `http://127.0.0.1:8737`; audit DB at `~/.config/forex-desk/audit.db`.
 | 2026-08-01 | 4 | **Phase 4 proposal approved; detailed plan written.** Tracks A–E: installers (AppImage/deb here, NSIS/DMG via CI), icons, first-run onboarding wizard, tray/menu/shortcuts/window-state/log/audit hygiene, engine companion (PyInstaller, detection only), flag-gated updater. Implementation starts. |
 | 2026-08-01 | 4 | **Phase 4 built.** A1 electron-builder config + A2 icons done. A3: AppImage built here (141 MB, `linux-unpacked` clean — 0 py/torch/python); deb's xz OOMs on this 7 GB box → moved to ubuntu-latest CI with a `dpkg -i` smoke test. B: 3-step onboarding wizard (engine/account/market), `app:get/set-onboarded` IPC, Settings "Re-run onboarding". C: tray + minimize-to-tray toggle, native menu + About (version/URL/audit counts), Ctrl+R/./1..5 shortcuts (renderer-wins, no double-bind), window-state persistence, `log.ts` wired (health transitions, sim, onboarding, updater), audit prune + WAL checkpoint timer. D: `scripts/build_engine_binary.sh` (PyInstaller), `DEPLOYMENT.md` (local + binary + systemd/launchd), `engine:detect-binary` IPC (env/app-dir probe, never launches) + Setup hint. E: version stamping via About; flag-gated `electron-updater` (`updater.ts` + Settings toggle/feed URL, silent no-op off). A4: `.github/workflows/release.yml` (ubuntu/win/mac matrix, `dpkg -i` smoke on Linux). `typecheck`+`build` green. Dev-mode verification complete: onboarding flow, shortcuts, minimize-to-tray, window restore, main.log. |
 | 2026-08-01 | 5 | **Phase 5 "Black Ink, One Blue" design pass built.** Installed `@fontsource/{bodoni-moda,schibsted-grotesk,fragment-mono}`. Rewrote `tokens.css` (monochrome ink ramp, PnL-only colors, wordmark-only blue, font imports). Rewrote `app.css` (inverted white active nav chip, `.btn.primary` white plate, dark inputs, monochrome toggles/checkboxes, white-on-black chart, sticky tables, monochrome setup steps). Recolored `EquityChart.tsx` (white hero line, gray drawdown). Applied wordmark in `Layout.tsx` + `Setup.tsx`. CDP verified all 6 screens: Dashboard, Signals, Trades, Reports, Settings, Onboarding. `typecheck`+`build` green. |
+| 2026-08-02 | 5.5 | **Engine auto-start + menu removal.** Added `startEngine()`/`stopEngine()` in `main.ts` (spawns `engine-server/server.py` on launch, kills on quit). Removed native Electron menu bar (`Menu.setApplicationMenu(null)`). Removed SIMULATION badge and IDLE pill from topbar. Engine status dot moved to sidebar. Verified: app launches, engine auto-starts, sim runs, all screens functional. |
+| 2026-08-02 | 6 | **Phase 6 "Private Wealth" proposal approved.** Major UI overhaul: luxurious glass morphism, 3-tier typography (Cormorant Garamond brand, Outfit display, JetBrains Mono data), Lucide icons, static sidebar with icons, hero topbar, compact metrics, glass effects, micro-interactions. 12 files to modify. Implementation not started. |

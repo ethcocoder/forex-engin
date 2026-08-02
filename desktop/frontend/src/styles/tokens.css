@@ -1,25 +1,72 @@
-@import "@fontsource/schibsted-grotesk/400.css";
-@import "@fontsource/schibsted-grotesk/500.css";
-@import "@fontsource/schibsted-grotesk/600.css";
-@import "@fontsource/bodoni-moda/500.css";
-@import "@fontsource/fragment-mono/400.css";
+@import "@fontsource/cormorant-garamond/600.css";
+@import "@fontsource/cormorant-garamond/700.css";
+@import "@fontsource/outfit/300.css";
+@import "@fontsource/outfit/400.css";
+@import "@fontsource/outfit/500.css";
+@import "@fontsource/outfit/600.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
 
 :root {
+  /* Deep obsidian background ramp */
   --ink-0: #05070a;
   --ink-1: #0a0e13;
   --ink-2: #0f1419;
-  --line: #1c232b;
-  --paper: #f5f7fa;
-  --gray: #9aa3b0;
-  --faint: #5c6672;
+
+  /* Glass layers */
+  --glass-0: rgba(5, 7, 10, 0.92);
+  --glass-1: rgba(15, 20, 25, 0.85);
+  --glass-2: rgba(25, 32, 40, 0.75);
+  --glass-3: rgba(35, 45, 55, 0.65);
+
+  /* Glass borders */
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-border-hover: rgba(255, 255, 255, 0.12);
+  --glass-border-active: rgba(255, 255, 255, 0.18);
+
+  /* Chrome accents */
+  --chrome: rgba(255, 255, 255, 0.85);
+  --chrome-dim: rgba(255, 255, 255, 0.45);
+  --chrome-faint: rgba(255, 255, 255, 0.15);
+
+  /* Semantic */
   --pos: #22c55e;
   --neg: #ef4444;
+  --warn: #f59e0b;
   --brand: #2e7cf6;
-  --radius: 4px;
-  --sans: "Schibsted Grotesk", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --serif: "Bodoni Moda", "Cormorant Garamond", Georgia, serif;
-  --mono: "Fragment Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --hairline: 1px solid var(--line);
+  --brand-2: #5b9bf7;
+
+  /* Radius */
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-full: 999px;
+
+  /* Typography */
+  --font-brand: "Cormorant Garamond", "Playfair Display", Georgia, serif;
+  --font-display: "Outfit", "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Spacing scale */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+
+  /* Motion */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out: cubic-bezier(0.33, 1, 0.68, 1);
+  --dur-1: 100ms;
+  --dur-2: 150ms;
+  --dur-3: 200ms;
+  --dur-4: 300ms;
+
+  /* Hairline */
+  --hairline: 1px solid var(--glass-border);
   --track: 0.12em;
 }
 
@@ -36,8 +83,8 @@ body,
 
 body {
   background: var(--ink-0);
-  color: var(--paper);
-  font-family: var(--sans);
+  color: var(--chrome);
+  font-family: var(--font-display);
   font-size: 13px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -46,28 +93,29 @@ body {
 
 /* Numerals are always monospaced + tabular. */
 .num {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
 }
 
-/* Eyebrow / label style (a treatment of the interface face). */
+/* Eyebrow / label style */
 .eyebrow {
-  font-family: var(--sans);
-  font-size: 11px;
+  font-family: var(--font-display);
+  font-size: 10px;
   font-weight: 500;
   letter-spacing: var(--track);
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--chrome-dim);
 }
 
 /* The one blue thing in the product: the FOREX DESK wordmark. */
 .wordmark {
-  font-family: var(--serif);
-  font-size: 20px;
-  font-weight: 500;
+  font-family: var(--font-brand);
+  font-size: 24px;
+  font-weight: 600;
   letter-spacing: 0.02em;
-  color: var(--paper);
+  color: var(--chrome);
+  line-height: 1.1;
 }
 
 .wordmark .b {
@@ -82,20 +130,17 @@ body {
   color: var(--neg);
 }
 
-.muted {
-  color: var(--gray);
+.warn {
+  color: var(--warn);
 }
 
-.card {
-  background: var(--ink-1);
-  border: var(--hairline);
-  border-radius: var(--radius);
-  padding: 16px;
+.muted {
+  color: var(--chrome-dim);
 }
 
 /* Focus visibility everywhere; calm and consistent. */
 :focus-visible {
-  outline: 1px solid var(--paper);
+  outline: 1px solid var(--brand);
   outline-offset: 2px;
 }
 

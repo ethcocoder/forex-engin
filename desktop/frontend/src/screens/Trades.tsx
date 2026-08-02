@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
+import { ArrowUp, ArrowDown } from "lucide-react"
 import { useEvents } from "../hooks"
-import { dirArrow, dirClass, fmtHold, fmtNum, fmtTs } from "../format"
+import { dirClass, fmtHold, fmtNum, fmtTs } from "../format"
 import type { TradeRow } from "../../electron/audit"
 
 type Filter = "all" | string
@@ -68,6 +69,7 @@ export default function Trades(): React.JSX.Element {
     [rows, reason, pair]
   )
   const totalPnl = filtered.reduce((s, r) => s + r.pnl, 0)
+  const maxAbs = useMemo(() => Math.max(...filtered.map((r) => Math.abs(r.pnl)), 1), [filtered])
 
   return (
     <div className="grid" style={{ gap: 16 }}>
@@ -115,11 +117,18 @@ export default function Trades(): React.JSX.Element {
                   <tr key={t.id || `${t.ts}-${i}`}>
                     <td className="num">{fmtTs(t.ts)}</td>
                     <td className="num">{t.pair}</td>
-                    <td className={`num ${dirClass(t.direction)}`}>{dirArrow(t.direction)}</td>
+                    <td className={`num ${dirClass(t.direction)}`}>
+                      {t.direction > 0 ? <ArrowUp size={14} /> : t.direction < 0 ? <ArrowDown size={14} /> : "—"}
+                    </td>
                     <td className="num">{fmtNum(t.size)}</td>
                     <td className="num">{fmtNum(t.entry_price, 5)}</td>
                     <td className="num">{fmtNum(t.exit_price, 5)}</td>
-                    <td className={`num ${t.pnl > 0 ? "pos" : t.pnl < 0 ? "neg" : ""}`}>{t.pnl >= 0 ? "+" : ""}{fmtNum(t.pnl)}</td>
+                    <td>
+                      <div className="pnl-cell">
+                        <span className={`num ${t.pnl > 0 ? "pos" : t.pnl < 0 ? "neg" : ""}`}>{t.pnl >= 0 ? "+" : ""}{fmtNum(t.pnl)}</span>
+                        <div className={`pnl-bar ${t.pnl >= 0 ? "pos" : "neg"}`} style={{ width: `${Math.min(100, Math.abs(t.pnl) / maxAbs * 100)}%` }} />
+                      </div>
+                    </td>
                     <td className="num">{fmtNum(t.slippage_pips, 2)}</td>
                     <td className="num">{fmtHold(t.hold_steps)}</td>
                     <td>{t.exit_reason}</td>
@@ -155,10 +164,13 @@ export default function Trades(): React.JSX.Element {
               <tbody>
                 {orders.slice(0, 100).map((o, i) => {
                   const d = o.data
+                  const dir = Number(d.direction ?? 0)
                   return (
                     <tr key={i}>
                       <td className="num">{fmtTs(o.ts)}</td>
-                      <td className={`num ${dirClass(d.direction)}`}>{dirArrow(d.direction)}</td>
+                      <td className={`num ${dirClass(d.direction)}`}>
+                        {dir > 0 ? <ArrowUp size={14} /> : dir < 0 ? <ArrowDown size={14} /> : "—"}
+                      </td>
                       <td>{String(d.order_type ?? "—")}</td>
                       <td className="num">{fmtNum(d.size)}</td>
                       <td className="num">{fmtNum(d.fill_price, 5)}</td>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import { Plug, Wallet, CandlestickChart, Shield, Database, Wrench, RefreshCw, Cloud } from "lucide-react"
 import type { EngineHealth } from "../../electron/ipc"
 import { useEvents } from "../hooks"
 
@@ -15,10 +16,13 @@ interface Cfg {
 
 const DEFAULT_PAIRS = ["EUR_USD", "GBP_USD", "USD_JPY", "USD_CHF"]
 
-function Section({ title, children }: { title: string; children: React.ReactNode }): React.JSX.Element {
+function Section({ icon: Icon, title, children }: { icon: React.ComponentType<{ size?: number; strokeWidth?: number }>; title: string; children: React.ReactNode }): React.JSX.Element {
   return (
-    <div className="card">
-      <h3 className="section-title">{title}</h3>
+    <div className="setting-section">
+      <div className="sec-head">
+        <Icon size={16} strokeWidth={1.6} />
+        <h3>{title}</h3>
+      </div>
       <div className="section-body">{children}</div>
     </div>
   )
@@ -183,8 +187,8 @@ export default function Settings(): React.JSX.Element {
 
   return (
     <div className="grid cols-2">
-      <Section title="Engine">
-        <Field label="ENGINE URL">
+      <Section icon={Plug} title="Engine">
+        <Field label="Engine URL">
           <input className="input mono" value={engineUrl} onChange={(e) => setEngineUrl(e.target.value)} />
         </Field>
         <button className="btn" onClick={() => void onSaveUrl()}>Connect</button>
@@ -207,14 +211,14 @@ export default function Settings(): React.JSX.Element {
         <div className="hint muted">God Mode enables neural/god-mode components. Applies on the next run.</div>
       </Section>
 
-      <Section title="Account">
-        <Field label="INITIAL BALANCE (USD)">
+      <Section icon={Wallet} title="Account">
+        <Field label="Initial Balance (USD)">
           <input className="input mono" type="number" value={balance} onChange={(e) => setBalance(e.target.value)} />
         </Field>
         <button className="btn" onClick={() => void onSaveAccount()}>Save</button>
       </Section>
 
-      <Section title="Market">
+      <Section icon={CandlestickChart} title="Market">
         <div className="checks">
           {allPairs.map((p) => (
             <label className="check" key={p}>
@@ -223,7 +227,7 @@ export default function Settings(): React.JSX.Element {
             </label>
           ))}
         </div>
-        <Field label="SIM PAIR">
+        <Field label="Sim Pair">
           <select className="input mono" value={simPair} onChange={(e) => setSimPair(e.target.value)}>
             {allPairs.map((p) => (
               <option key={p} value={p}>{p}</option>
@@ -233,27 +237,31 @@ export default function Settings(): React.JSX.Element {
         <button className="btn" onClick={() => void onSaveMarket()}>Save</button>
       </Section>
 
-      <Section title="Risk">
-        <Field label="KELLY FRACTION">
-          <input className="input mono" type="number" step={0.01} value={kelly} onChange={(e) => setKelly(e.target.value)} />
-        </Field>
-        <Field label="MAX ACCOUNT RISK %">
-          <input className="input mono" type="number" step={0.001} value={maxRisk} onChange={(e) => setMaxRisk(e.target.value)} />
-        </Field>
+      <Section icon={Shield} title="Risk">
+        <div className="grid cols-2" style={{ gap: 12 }}>
+          <Field label="Kelly Fraction">
+            <input className="input mono" type="number" step={0.01} value={kelly} onChange={(e) => setKelly(e.target.value)} />
+          </Field>
+          <Field label="Max Risk %">
+            <input className="input mono" type="number" step={0.001} value={maxRisk} onChange={(e) => setMaxRisk(e.target.value)} />
+          </Field>
+        </div>
         <div className="divider" />
-        <Field label="DAILY DRAWDOWN LIMIT %">
-          <input className="input mono" type="number" step={0.5} value={cbDaily} onChange={(e) => setCbDaily(e.target.value)} />
-        </Field>
-        <Field label="WEEKLY DRAWDOWN LIMIT %">
-          <input className="input mono" type="number" step={0.5} value={cbWeekly} onChange={(e) => setCbWeekly(e.target.value)} />
-        </Field>
-        <Field label="MONTHLY DRAWDOWN LIMIT %">
-          <input className="input mono" type="number" step={0.5} value={cbMonthly} onChange={(e) => setCbMonthly(e.target.value)} />
-        </Field>
+        <div className="grid cols-3" style={{ gap: 12 }}>
+          <Field label="Daily DD %">
+            <input className="input mono" type="number" step={0.5} value={cbDaily} onChange={(e) => setCbDaily(e.target.value)} />
+          </Field>
+          <Field label="Weekly DD %">
+            <input className="input mono" type="number" step={0.5} value={cbWeekly} onChange={(e) => setCbWeekly(e.target.value)} />
+          </Field>
+          <Field label="Monthly DD %">
+            <input className="input mono" type="number" step={0.5} value={cbMonthly} onChange={(e) => setCbMonthly(e.target.value)} />
+          </Field>
+        </div>
         <button className="btn" onClick={() => void onSaveRisk()}>Save</button>
       </Section>
 
-      <Section title="Data">
+      <Section icon={Database} title="Data">
         <div className="row-between">
           <span className="muted" style={{ fontSize: 12 }}>Status</span>
           <span>{ready ? "Ready" : "Not prepared"}</span>
@@ -270,45 +278,45 @@ export default function Settings(): React.JSX.Element {
         )}
       </Section>
 
-        <Section title="App">
-          <div className="row-between">
-            <span className="muted" style={{ fontSize: 12 }}>Minimize to tray on close</span>
-            <button className={`toggle ${minimizeTray ? "on" : ""}`} onClick={() => void onToggleTray(!minimizeTray)}>
-              <span className="knob" />
-            </button>
-          </div>
-          <div className="hint muted">When off, closing the window quits FOREX DESK.</div>
-          <div className="divider" />
-          <button className="btn ghost" onClick={() => void onReRunOnboarding()}>
-            Re-run onboarding
+      <Section icon={Wrench} title="App">
+        <div className="row-between">
+          <span className="muted" style={{ fontSize: 12 }}>Minimize to tray on close</span>
+          <button className={`toggle ${minimizeTray ? "on" : ""}`} onClick={() => void onToggleTray(!minimizeTray)}>
+            <span className="knob" />
           </button>
-        </Section>
+        </div>
+        <div className="hint muted">When off, closing the window quits FOREX DESK.</div>
+        <div className="divider" />
+        <button className="btn ghost" onClick={() => void onReRunOnboarding()}>
+          <RefreshCw size={14} /> Re-run onboarding
+        </button>
+      </Section>
 
-        <Section title="Updates">
-          <div className="row-between">
-            <span className="muted" style={{ fontSize: 12 }}>Enable auto-update</span>
-            <button className={`toggle ${updatesEnabled ? "on" : ""}`} onClick={() => setUpdatesEnabled(!updatesEnabled)}>
-              <span className="knob" />
-            </button>
-          </div>
-          <Field label="FEED URL">
-            <input
-              className="input mono"
-              value={updatesFeed}
-              onChange={(e) => setUpdatesFeed(e.target.value)}
-              placeholder="https://example.com/updates"
-              disabled={!updatesEnabled}
-            />
-          </Field>
-          <button className="btn" disabled={!updatesEnabled} onClick={() => void onSaveUpdates()}>
-            Save
+      <Section icon={Cloud} title="Updates">
+        <div className="row-between">
+          <span className="muted" style={{ fontSize: 12 }}>Enable auto-update</span>
+          <button className={`toggle ${updatesEnabled ? "on" : ""}`} onClick={() => setUpdatesEnabled(!updatesEnabled)}>
+            <span className="knob" />
           </button>
-          <div className="hint muted">
-            {updatesEnabled
-              ? "Checks for updates on launch against the feed. Requires a generic electron-updater feed."
-              : "Disabled by default. Enable to check for updates on launch."}
-          </div>
-        </Section>
+        </div>
+        <Field label="Feed URL">
+          <input
+            className="input mono"
+            value={updatesFeed}
+            onChange={(e) => setUpdatesFeed(e.target.value)}
+            placeholder="https://example.com/updates"
+            disabled={!updatesEnabled}
+          />
+        </Field>
+        <button className="btn" disabled={!updatesEnabled} onClick={() => void onSaveUpdates()}>
+          Save
+        </button>
+        <div className="hint muted">
+          {updatesEnabled
+            ? "Checks for updates on launch against the feed. Requires a generic electron-updater feed."
+            : "Disabled by default. Enable to check for updates on launch."}
+        </div>
+      </Section>
 
       {saved && (
         <div className="saved muted" style={{ gridColumn: "1 / -1" }}>

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, Menu, Tray, dialog } from "electron"
 import { join, dirname } from "path"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
+import { spawn, type ChildProcess } from "child_process"
 import { AuditStore, AuditRecorder } from "./audit"
 import { log } from "./log"
 import { loadWindowState, saveWindowState, applyWindowState } from "./windowState"
@@ -39,7 +40,60 @@ let auditRecorder: AuditRecorder | null = null
 let tray: Tray | null = null
 let simState = "idle"
 let quitting = false
+let engineProcess: ChildProcess | null = null
 const updater = new Updater()
+
+function findEnginePath(): string | null {
+  const candidates = [
+    join(dirname(app.getPath("exe")), "engine-server", "server.py"),
+    join(app.getPath("userData"), "..", "forex-engin", "engine-server", "server.py"),
+    "/home/nexuss0781/Desktop/Nex/forex-engin/engine-server/server.py"
+  ]
+  for (const p of candidates) {
+    if (existsSync(p)) return p
+  }
+  return null
+}
+
+function startEngine(): void {
+  if (engineProcess) return
+  const serverPy = findEnginePath()
+  if (!serverPy) {
+    log("engine server.py not found", "warn")
+    return
+  }
+  const serverDir = dirname(serverPy)
+  const pythonBin = join(serverDir, ".venv", "bin", "python")
+  const python = existsSync(pythonBin) ? pythonBin : "python3"
+  log(`starting engine: ${python} ${serverPy} in ${serverDir}`)
+  engineProcess = spawn(python, [serverPy], {
+    cwd: serverDir,
+    stdio: ["ignore", "pipe", "pipe"]
+  })
+  engineProcess.stdout?.on("data", (d: Buffer) => {
+    const msg = d.toString().trim()
+    if (msg) log(`engine: ${msg}`)
+  })
+  engineProcess.stderr?.on("data", (d: Buffer) => {
+    const msg = d.toString().trim()
+    if (msg) log(`engine: ${msg}`)
+  })
+  engineProcess.on("exit", (code) => {
+    log(`engine exited with code ${code}`)
+    engineProcess = null
+  })
+  engineProcess.on("error", (e) => {
+    log(`engine spawn error: ${e.message}`, "error")
+    engineProcess = null
+  })
+}
+
+function stopEngine(): void {
+  if (!engineProcess) return
+  log("stopping engine")
+  engineProcess.kill("SIGTERM")
+  engineProcess = null
+}
 
 const wsUrlFor = (url: string): string => url.replace(/^http/, "ws") + "/ws"
 
@@ -159,26 +213,7 @@ function showAbout(): void {
 }
 
 function buildMenu(): void {
-  const template: Electron.MenuItemConstructorOptions[] = [
-    {
-      label: "Simulation",
-      submenu: [
-        { label: "Run Simulation", accelerator: "CmdOrCtrl+R", click: () => void startSimFromTray() },
-        { label: "Stop", accelerator: "CmdOrCtrl+.", click: () => void stopSimFromTray() },
-        { type: "separator" },
-        { label: "Quit", accelerator: "CmdOrCtrl+Q", click: () => { quitting = true; app.quit() } }
-      ]
-    },
-    {
-      label: "View",
-      submenu: [{ label: "Toggle Dev Tools", accelerator: "F12", role: "toggleDevTools" }]
-    },
-    {
-      label: "Help",
-      submenu: [{ label: "About FOREX DESK", click: () => showAbout() }]
-    }
-  ]
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+  Menu.setApplicationMenu(null)
 }
 
 function setupTray(): void {
@@ -358,9 +393,11 @@ app.whenReady().then(() => {
   connectAuditRecorder()
 
   registerIpc()
-  buildMenu()
+  Menu.setApplicationMenu(null)
   setupTray()
   createWindow()
+
+  startEngine()
 
   void pollHealth()
   setInterval(() => void pollHealth(), 5000)
@@ -377,6 +414,7 @@ app.whenReady().then(() => {
 
 app.on("before-quit", () => {
   log("app quitting")
+  stopEngine()
   auditStore?.prune()
   auditStore?.checkpoint()
   auditRecorder?.stop()
@@ -387,6 +425,7 @@ app.on("window-all-closed", () => {
 })
 
 app.on("will-quit", () => {
+  stopEngine()
   auditRecorder?.stop()
   auditStore?.close()
 })

@@ -10,7 +10,7 @@ interface Props {
   height?: number
 }
 
-export default function EquityChart({ points, height = 220 }: Props): React.JSX.Element {
+export default function EquityChart({ points, height = 240 }: Props): React.JSX.Element {
   if (points.length === 0) {
     return (
       <div className="empty" style={{ height }}>
@@ -20,9 +20,8 @@ export default function EquityChart({ points, height = 220 }: Props): React.JSX.
   }
 
   const W = 800
-  const H = 220
-  const PAD = 8
-  const pad = 6
+  const H = 240
+  const PAD = 10
   const values = points.map((p) => p.equity)
   const min = Math.min(...values)
   const max = Math.max(...values)
@@ -31,8 +30,8 @@ export default function EquityChart({ points, height = 220 }: Props): React.JSX.
   const x = (i: number): number => (i / (points.length - 1)) * W
   const last = points[points.length - 1].equity
   const drawdown = ((max - last) / max) * 100
-  const paper = "var(--paper)"
-  const gray = "var(--gray)"
+  const chrome = "#f5f7fa"
+  const chromeDim = "rgba(245, 247, 250, 0.45)"
 
   const line = points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.equity).toFixed(1)}`).join(" ")
 
@@ -48,23 +47,23 @@ export default function EquityChart({ points, height = 220 }: Props): React.JSX.
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
         <defs>
           <linearGradient id="eqArea" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={paper} stopOpacity="0.12" />
-            <stop offset="100%" stopColor={paper} stopOpacity="0" />
+            <stop offset="0%" stopColor={chrome} stopOpacity="0.08" />
+            <stop offset="100%" stopColor={chrome} stopOpacity="0" />
           </linearGradient>
         </defs>
 
         <path d={`${line} L${lastX},${H} L0,${H} Z`} fill="url(#eqArea)" stroke="none" />
-        <path d={line} fill="none" stroke={paper} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+        <path d={line} fill="none" stroke={chrome} strokeWidth="2" vectorEffect="non-scaling-stroke" />
 
         <path
           d={`M0,${maxY} L${lastX},${maxY} L${lastX},${lastY} L${x(maxIdx)},${lastY} Z`}
-          fill={gray}
-          opacity="0.12"
+          fill={chromeDim}
+          opacity="0.06"
           stroke="none"
         />
 
-        <line x1={maxX} y1={maxY} x2={maxX} y2={maxY} stroke={paper} strokeWidth="2" vectorEffect="non-scaling-stroke" />
-        <line x1={lastX} y1={lastY} x2={lastX} y2={lastY} stroke={paper} strokeWidth="2" vectorEffect="non-scaling-stroke" />
+        <line x1={maxX} y1={maxY} x2={maxX} y2={maxY} stroke={chrome} strokeWidth="2" vectorEffect="non-scaling-stroke" />
+        <line x1={lastX} y1={lastY} x2={lastX} y2={lastY} stroke={chrome} strokeWidth="2" vectorEffect="non-scaling-stroke" />
       </svg>
 
       <div className="chart-labels">
