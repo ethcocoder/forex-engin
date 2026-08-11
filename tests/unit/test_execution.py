@@ -185,7 +185,10 @@ def test_vwap_router():
     
     with unittest.mock.patch('execution.routing.vwap.time.sleep', return_value=None):
         assert router.route(order, mock_broker) is True
-        time.sleep(0.4)
+        # Wait until all 3 slices are executed by the daemon thread
+        start_wait = time.time()
+        while mock_broker.place_order.call_count < 3 and time.time() - start_wait < 2.0:
+            time.sleep(0.01)
     
     # Check that it slices the order and calls broker
     assert mock_broker.place_order.call_count == 3

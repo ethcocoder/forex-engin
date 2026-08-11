@@ -1,84 +1,39 @@
-import os
-import sys
-import time
-import structlog
+#!/usr/bin/env python3
+"""Blocked live-trading entry point.
+
+Live capital execution is deliberately disabled until the independent production
+readiness gates, authenticated broker-demo trial, and explicit operator approval
+are complete. This entry point must not initialise a broker session or submit an
+order under any circumstances.
+"""
+
+from __future__ import annotations
+
 import argparse
-from datetime import datetime
+import sys
 
-# Ensure root dir is in path
-sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
-from configs.loader import load_config
-from execution.brokers.oanda_broker import OandaBroker
-from execution.execution_engine import ExecutionEngine
-from risk.risk_engine import RiskEngine, PortfolioState
-from monitoring.performance_tracker import PerformanceTracker
-from monitoring.alpha_decay import AlphaDecayMonitor
+LIVE_EXECUTION_DISABLED_REASON = (
+    "LIVE EXECUTION IS DISABLED. Forex Engin remains a research and broker-demo "
+    "candidate. Complete all evidence gates in MASTER_PRODUCTION_READINESS_PLAN.md, "
+    "including five years of manifest-verified real tick data, purged walk-forward "
+    "evaluation, and a monitored 30-day broker-demo trial, before proposing any "
+    "change to this lock."
+)
 
-logger = structlog.get_logger()
 
-def run_live_trading(config_path: str):
-    logger.info("Starting ELITE Live Trading Engine...")
-    
-    # 1. Load Config & Components
-    app_config = load_config(config_path)
-    config = app_config.model_dump() if hasattr(app_config, "model_dump") else app_config
-    
-    # 2. Initialize Broker (Oanda for Live/Practice)
-    broker_cfg = config.get("execution", {}).get("broker", {})
-    broker = OandaBroker(config=broker_cfg)
-    
-    if not broker.connect():
-        logger.critical("Failed to connect to broker. Aborting live session.")
-        return
+def run_live_trading(_: str) -> None:
+    """Fail closed before any credential, broker, or order-handling code can run."""
+    raise RuntimeError(LIVE_EXECUTION_DISABLED_REASON)
 
-    # 3. Initialize Risk & Monitoring
-    risk_engine = RiskEngine(config=config.get("risk", {}))
-    tracker = PerformanceTracker(initial_capital=broker.get_account_balance())
-    decay_monitor = AlphaDecayMonitor(retrain_callback=lambda: logger.warning("RETRAIN TRIGGERED"))
 
-    execution_engine = ExecutionEngine(broker=broker)
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Blocked live-trading entry point")
+    parser.add_argument("--config", default="configs/config.yaml", help="Retained for CLI compatibility")
+    parser.parse_args()
+    print(LIVE_EXECUTION_DISABLED_REASON, file=sys.stderr)
+    return 2
 
-    logger.info("Live Pipeline Online. Entering Tick Loop.")
-
-    # 4. Main Live Loop
-    try:
-        while True:
-            # A. Sync Portfolio
-            positions = broker.get_positions()
-            balance = broker.get_account_balance()
-            
-            # B. Get Market Data (Real-time)
-            # In a real setup, this would come from a WebSocket stream
-            # For this loop, we poll the broker for the latest price
-            market_data = {
-                "close": 1.0850, # Placeholder: Replace with real stream
-                "spread_pips": 0.8,
-                "timestamp": datetime.utcnow()
-            }
-            
-            # C. Check for Emergency Kill Switch (e.g., from a file or DB)
-            if os.path.exists("STOP_TRADING"):
-                risk_engine.activate_kill_switch()
-                logger.critical("STOP_TRADING signal detected. Flattening all positions.")
-                # Logic to close all positions would go here
-                break
-
-            # D. Log Health
-            tracker.update_equity(balance, time.time())
-            
-            # Wait for next tick (e.g., 1 second for high-frequency or 1 minute for hourly)
-            time.sleep(1)
-
-    except KeyboardInterrupt:
-        logger.info("Live session interrupted by user.")
-    finally:
-        broker.disconnect()
-        logger.info("Live session terminated.")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="configs/config.yaml")
-    args = parser.parse_args()
-    
-    run_live_trading(args.config)
+    raise SystemExit(main())

@@ -242,6 +242,13 @@ class RealTimePipeline(TradingPipeline):
 
 
 def run_real_paper_trading(features_path="data/EUR_USD_features.csv", raw_path="data/EUR_USD_ticks.csv", fast: bool = False, god_mode: bool = True):
+    """Fail closed: this legacy historical replay is not broker-demo paper trading."""
+    raise RuntimeError(
+        "Legacy replay is disabled: it used local CSV replay with simulated fills and randomized spreads, "
+        "not an authenticated broker-demo feed. Use scripts/run_research_validation.py for historical "
+        "research only; it cannot authorize paper or live trading."
+    )
+
     if fast:
         logging.basicConfig(level=logging.INFO, force=True)
         logging.getLogger().setLevel(logging.INFO)

@@ -15,7 +15,7 @@ The system operates under a strict **Gate-Based Readiness Contract**. Each gate 
 | **Phase 1-3** | Architecture & Security | Secure credential storage, encrypted IPC, local SQLAlchemy persistence | Unit test pass rate 100%, secure session context managers | ✅ Completed |
 | **Phase 4-5** | Broker Connectivity & Lifecycle | Authenticated FIX/REST adapter, order reconciliation, idempotency | Broker demo handshake, order state machine test suite | ⏳ Pending Demo Setup |
 | **Phase 6-7** | Risk & Observability | Drawdown circuit breakers, CVaR limits, Prometheus/Grafana metrics | Automated fault injection, latency & slippage logging | ⏳ Pending Integration |
-| **Phase 8-9** | Research Validation | Purged cross-validation, walk-forward OOS Sharpe > 2.0, cost modeling | Out-of-sample performance report, feature leakage audit | ⏳ Pending Backtest Run |
+| **Phase 8-9** | Research Validation | Manifest-verified real tick data, purged cross-validation, walk-forward OOS Sharpe > 2.0, cost modeling | Data provenance manifest, out-of-sample performance report, feature leakage audit | ⏳ Pending Backtest Run |
 | **Phase 10** | 30-Day Paper Trial | Continuous 24/5 broker-demo execution across major currency pairs | 30-day execution log, fill reconciliation report, live drawdown audit | ⏳ Next Milestone |
 | **Phase 11-12** | Release Candidate | Chaos testing, container hardening, operator sign-off | Final go/no-go review board approval | 🔒 Deferred |
 
@@ -45,6 +45,8 @@ The system operates under a strict **Gate-Based Readiness Contract**. Each gate 
 ### Phase 8 & 9: Quantitative Research & Walk-Forward Validation
 - Enforce purged cross-validation to prevent temporal feature leakage across microstructure and wavelet features.
 - Evaluate out-of-sample Sharpe ratio, Calmar ratio, and profit factor against 5 years of historical tick data.
+- Require `DATA_PROVENANCE_CONTRACT.md` compliance before any candidate model is trained. Each input must have a source manifest, cryptographic hash, UTC coverage evidence, and bid/ask quality checks. Synthetic or unprovenanced data are categorically ineligible for readiness evidence.
+- Require an independent manifest review demonstrating that feature rows, labels, cross-validation boundaries, and cost inputs use only information available at the decision time.
 
 ### Phase 10: Authenticated 30-Day Broker-Demo Trial
 - Deploy the system to a dedicated staging server connected exclusively to a broker **Demo / Paper** account.

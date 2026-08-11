@@ -64,14 +64,14 @@ const copy = {
     eyebrow: 'ELITE10X · INSTITUTIONAL TRADING PLATFORM',
     brandTitle: 'Forex Engin',
     heroTitle: 'Ultra High-Performance Neural & C++ Quantitative Core.',
-    heroSubtitle: 'Command your algorithmic trading strategies with nanosecond C++ execution, advanced uncertainty gating, and multi-broker API connectivity.',
+    heroSubtitle: 'Inspect research models, validated market-data provenance, and safety controls. Broker-demo and live execution remain locked pending independent readiness evidence.',
     enterApp: 'Launch Command Center',
     signInTitle: 'Operator Authentication',
     signInSubtitle: 'Enter your institutional credentials to access the secure desktop command plane.',
     emailLabel: 'Operator ID / Email',
     passwordLabel: 'Secure Key / Password',
     signInBtn: 'Authenticate & Enter',
-    demoHint: 'Demo credential: use any email & password to enter.',
+    demoHint: 'Preview access only. No trading or broker authentication is enabled.',
     logout: 'Lock Terminal',
     overview: 'Overview',
     engine: 'Engine Room',
@@ -108,30 +108,30 @@ const copy = {
     neutral: 'Neutral',
     commandDeck: 'Engine Control Deck',
     commandCopy: 'Configure your trading parameters, test algorithmic resilience, and link your broker API feed.',
-    launchPaper: 'Run Paper Session',
+    launchPaper: 'Paper Trial Locked',
     openReport: 'View Performance Report',
     configureBroker: 'Configure Broker',
     recentEvents: 'Audit Trail',
-    event1: 'Uncertainty gate rejected 1,324 ambiguous ticks successfully.',
+    event1: 'Historical research results require independent real-data validation.',
     event2: 'Daily drawdown circuit breaker armed at 2.0%.',
     event3: 'C++ engine heartbeat verified from local binary.',
     event4: 'Bilingual translation and theme persistence active.',
-    demoNotice: 'Safe-Mode Preview: Configure your broker API below to stream live quotes.',
+    demoNotice: 'Safe-mode preview: broker connectivity and order routing are locked until all readiness gates pass.',
     safeByDefault: 'Safe By Default',
-    paperMode: 'PAPER MODE',
-    liveMode: 'LIVE MODE',
+    paperMode: 'RESEARCH MODE',
+    liveMode: 'RESEARCH ONLY',
     language: 'Language',
     theme: 'Theme',
     light: 'Light',
     dark: 'Dark',
-    brokerConfigTitle: 'Broker API Integration (SQLAlchemy Backend)',
-    brokerConfigSubtitle: 'Connect to OANDA, Interactive Brokers, or Currenex via secure API tokens stored in the local SQLite/SQLAlchemy database.',
+    brokerConfigTitle: 'Broker-Demo Readiness (Locked)',
+    brokerConfigSubtitle: 'Credential capture, broker authentication, and order routing are disabled. The application stores only a non-operative demo preference until mandatory research and broker-demo gates are completed.',
     brokerSelect: 'Select Broker Provider',
-    apiKey: 'API Access Token / Secret',
+    apiKey: 'API Token (Disabled)',
     accountId: 'Account ID / Identifier',
     leverage: 'Target Leverage',
-    saveBroker: 'Save & Authenticate Broker',
-    saveSuccess: 'Broker API configuration saved securely in SQLAlchemy DB.',
+    saveBroker: 'Save Non-Operative Demo Preference',
+    saveSuccess: 'Non-operative demo preference saved. No broker connection or order routing was enabled.',
     testOutput: 'Engine Validation Output',
     noTest: 'Run a chaos test from the Engine Room to verify C++ performance.',
     controls: 'Controls',
@@ -144,21 +144,21 @@ const copy = {
     f1Desc: 'Sub-millisecond feature extraction and model inference compiled with -O3 -march=native.',
     f2Title: 'Uncertainty Modeling',
     f2Desc: 'First-class confidence scoring that rejects ambiguous signals during volatility shocks.',
-    f3Title: 'Multi-Broker Routing',
-    f3Desc: 'Seamless switching between paper simulation and live FIX/REST broker gateways.',
+    f3Title: 'Broker-Demo Readiness',
+    f3Desc: 'Broker credentials and order routing are locked until independently verified research and demo-trial gates pass.',
   },
   am: {
     eyebrow: 'ELITE10X · ተቋማዊ የንግድ መድረክ',
     brandTitle: 'ፎርክስ ሞተር',
     heroTitle: 'ከፍተኛ ፍጥነት ያለው የኒውራል እና C++ የንግድ ማዕከል',
-    heroSubtitle: 'በሰከንድ ሰባተኛ ክፍል ውስጥ በሚሰራ የC++ አፈፃፀም፣ በእርግጠኝነት መከላከያ እና ከባንክ API ጋር ግንኙነት ስልቶችዎን ይቆጣጠሩ።',
+    heroSubtitle: 'የምርምር ሞዴሎችን፣ የተረጋገጠ የገበያ መረጃ ምንጭን እና የደህንነት መቆጣጠሪያዎችን ይመልከቱ። የባንክ-ማሳያ እና ቀጥታ አፈጻጸም እስኪረጋገጥ ተቆልፏል።',
     enterApp: 'መቆጣጠሪያውን ክፈት',
     signInTitle: 'የኦፕሬተር መግቢያ',
     signInSubtitle: 'ወደ ደህንነቱ የተጠበቀ የዴስክቶፕ መቆጣጠሪያ ለመግባት መለያዎን ያስገቡ።',
     emailLabel: 'የኦፕሬተር መለያ / ኢሜል',
     passwordLabel: 'ሚስጥራዊ ቁልፍ / የይለፍ ቃል',
     signInBtn: 'ግባ እና ጀምር',
-    demoHint: 'የሙከራ መለያ፦ ለመግባት ማንኛውን ይጠቀሙ።',
+    demoHint: 'ይህ ቅድመ እይታ ብቻ ነው፤ የንግድ ወይም የባንክ ማረጋገጫ አልነቃም።',
     logout: 'መቆጣጠሪያውን ቆልፍ',
     overview: 'አጠቃላይ እይታ',
     engine: 'የሞተር ክፍል',
@@ -203,22 +203,22 @@ const copy = {
     event2: 'የዕለት መቀነስ መከላከያ በ2.0% ተዘጋጅቷል።',
     event3: 'የC++ ሞተር ልብ ምት ከባይናሪው ተረጋግጧል።',
     event4: 'ባለሁለት ቋንቋ እና የገጽታ ማስተካከያ ንቁ ናቸው።',
-    demoNotice: 'ደህንነቱ የተጠበቀ ቅድመ እይታ፦ የቀጥታ መረጃ ለማግኘት ከታች የባንክ API ያዋቅሩ።',
+    demoNotice: 'ደህንነቱ የተጠበቀ ቅድመ እይታ፦ የባንክ ግንኙነት እና ትዕዛዝ መላክ ሁሉም የዝግጁነት መስፈርቶች እስኪያልፉ ድረስ ተቆልፏል።',
     safeByDefault: 'በነባሪ ደህንነቱ የተጠበቀ',
-    paperMode: 'የፔፐር ሁኔታ',
-    liveMode: 'የቀጥታ ሁኔታ',
+    paperMode: 'የምርምር ሁኔታ',
+    liveMode: 'ምርምር ብቻ',
     language: 'ቋንቋ',
     theme: 'ገጽታ',
     light: 'ብርሃን',
     dark: 'ጨለማ',
-    brokerConfigTitle: 'የባንክ API ውህደት (SQLAlchemy የውሂብ ጎታ)',
-    brokerConfigSubtitle: 'በአካባቢያዊ SQLite/SQLAlchemy የውሂብ ጎታ ውስጥ ከተቀመጡ ቶከኖች ጋር ከ OANDA፣ Interactive Brokers ወይም Currenex ጋር ይገናኙ።',
+    brokerConfigTitle: 'የባንክ-ማሳያ ዝግጁነት (ተቆልፏል)',
+    brokerConfigSubtitle: 'የመለያ መረጃ ማስገባት፣ የባንክ ማረጋገጫ እና ትዕዛዝ መላክ ተዘግቷል። የምርምር እና የማሳያ መስፈርቶች እስኪሟሉ ድረስ ተግባራዊ ያልሆነ ምርጫ ብቻ ይቀመጣል።',
     brokerSelect: 'የባንክ አቅራቢ ይምረጡ',
-    apiKey: 'የAPI ሚስጥራዊ ቶከን',
+    apiKey: 'የAPI ቶከን (ተዘግቷል)',
     accountId: 'የመለያ ቁጥር',
     leverage: 'የብድር መጠን (leverage)',
-    saveBroker: 'አስቀምጥ እና አረጋግጥ',
-    saveSuccess: 'የባንክ ውቅር በ SQLAlchemy DB ውስጥ ተቀምጧል።',
+    saveBroker: 'ተግባራዊ ያልሆነ የማሳያ ምርጫ አስቀምጥ',
+    saveSuccess: 'ተግባራዊ ያልሆነ የማሳያ ምርጫ ተቀምጧል፤ ምንም የባንክ ግንኙነት ወይም ትዕዛዝ አልነቃም።',
     testOutput: 'የሞተር ማረጋገጫ ውጤት',
     noTest: 'የC++ አፈፃፀምን ለመፈተሽ ከሞተር ክፍል ሙከራ ያካሂዱ።',
     controls: 'ቁጥጥሮች',
@@ -231,8 +231,8 @@ const copy = {
     f1Desc: 'በ -O3 -march=native የተጠናቀረ እጅግ ፈጣን የባህሪ ማውጣት እና የሞተር ትንበያ።',
     f2Title: 'የእርግጠኝነት ሞዴል',
     f2Desc: 'በገበያ ውጣ ውረድ ጊዜ ግልጽ ያልሆኑ ምልክቶችን በራስ ሰር የሚለይና ውድቅ የሚያደርግ ሥርዓት።',
-    f3Title: 'ባለብዙ ባንክ ትዕዛዝ መስመር',
-    f3Desc: 'በፔፐር ማስመሰል እና በቀጥታ የባንክ መግቢያዎች መካከል ያለ እንከን መቀያየር።',
+    f3Title: 'የባንክ-ማሳያ ዝግጁነት',
+    f3Desc: 'የባንክ መለያ እና የትዕዛዝ መላኪያ በራስ ገለልተኛ ማረጋገጫ እስኪጠናቀቅ ድረስ ተዘግቷል።',
   },
 } as const
 
@@ -276,10 +276,10 @@ export default function App() {
 
   const [status, setStatus] = useState<EngineStatus>({
     connected: false,
-    mode: 'PAPER',
+    mode: 'RESEARCH_ONLY',
     version: 'elite10x-pr / sqlalchemy-preview',
     heartbeat: new Date().toISOString(),
-    message: 'SQLAlchemy database connected. Safe paper mode active.',
+    message: 'Research-only preview. Broker connectivity and order routing are locked.',
   })
 
   const t = (key: CopyKey) => copy[language][key]
@@ -301,29 +301,13 @@ export default function App() {
         }
       }).catch(() => undefined)
     } else {
-      // Local web preview storage fallback
-      const saved = localStorage.getItem('elite10x_broker_config')
-      if (saved) {
-        try {
-          const cfg = JSON.parse(saved)
-          setBrokerId(cfg.brokerId || 'oanda_demo')
-          setApiKey(cfg.apiKey || '')
-          setAccountId(cfg.accountId || '')
-          setLeverage(cfg.leverage || 10)
-          if (cfg.apiKey) {
-            setStatus({
-              connected: true,
-              mode: cfg.mode || 'LIVE_PAPER',
-              version: 'elite10x-pr / sqlalchemy-preview',
-              heartbeat: new Date().toISOString(),
-              brokerConfig: cfg,
-              message: `Connected to ${cfg.brokerId} via SQLAlchemy DB.`,
-            })
-          }
-        } catch {
-          // ignore
-        }
-      }
+      // Browser preview must never store, expose, or infer broker credentials.
+      setStatus((current) => ({
+        ...current,
+        connected: false,
+        mode: 'RESEARCH_ONLY',
+        message: 'Research-only browser preview. Broker credentials are not accepted.',
+      }))
     }
   }, [])
 
@@ -338,22 +322,23 @@ export default function App() {
 
   async function handleSaveBroker(e: React.FormEvent) {
     e.preventDefault()
-    const cfg = { brokerId, apiKey, accountId, leverage, mode: apiKey ? 'LIVE_PAPER' : 'PAPER' }
+    const cfg = { brokerId: 'oanda_demo', apiKey: '', accountId: '', leverage, mode: 'RESEARCH_ONLY' }
     if (window.electronAPI) {
       await window.electronAPI.saveConfig(cfg)
       const updated = await window.electronAPI.getStatus()
       if (updated) setStatus(updated)
     } else {
-      localStorage.setItem('elite10x_broker_config', JSON.stringify(cfg))
       setStatus({
-        connected: Boolean(apiKey),
-        mode: cfg.mode,
+        connected: false,
+        mode: 'RESEARCH_ONLY',
         version: 'elite10x-pr / sqlalchemy-preview',
         heartbeat: new Date().toISOString(),
         brokerConfig: cfg,
-        message: apiKey ? `Connected to ${brokerId} via SQLAlchemy DB.` : 'Paper mode active.',
+        message: 'Non-operative demo preference saved. Broker authentication remains disabled.',
       })
     }
+    setApiKey('')
+    setAccountId('')
     setSaveNotice(true)
     setTimeout(() => setSaveNotice(false), 3500)
   }
@@ -367,7 +352,7 @@ export default function App() {
         setTestOutput(result.output || 'Chaos test returned no output.')
       } else {
         await new Promise((resolve) => setTimeout(resolve, 900))
-        setTestOutput('SQLAlchemy + C++ Preview Validation\n10,000 ticks processed · 0.94 ms latency · 10 black swan deflections · 1,324 uncertainty rejections · 100% win rate proven')
+        setTestOutput('C++ Preview Validation\nStatic preview completed. No market data was ingested, no model performance was measured, and no broker order was submitted.')
       }
     } finally {
       setRunning(false)
@@ -553,21 +538,18 @@ export default function App() {
                   <label>
                     <span>{t('brokerSelect')}</span>
                     <select value={brokerId} onChange={(e) => setBrokerId(e.target.value)}>
-                      <option value="oanda_demo">OANDA REST/Streaming (Demo)</option>
-                      <option value="oanda_live">OANDA REST/Streaming (Live)</option>
-                      <option value="ib_gateway">Interactive Brokers (TWS / Gateway)</option>
-                      <option value="currenex">Currenex FX Bridge</option>
+                      <option value="oanda_demo">OANDA Broker-Demo (Locked — preference only)</option>
                     </select>
                   </label>
 
                   <label>
                     <span>{t('accountId')}</span>
-                    <input type="text" placeholder="101-004-12345678-001" value={accountId} onChange={(e) => setAccountId(e.target.value)} />
+                    <input type="text" placeholder="Disabled until broker-demo readiness gate" value={accountId} onChange={(e) => setAccountId(e.target.value)} disabled />
                   </label>
 
                   <label>
                     <span>{t('apiKey')}</span>
-                    <input type="password" placeholder="Bearer token or API secret key" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
+                    <input type="password" placeholder="Credential entry disabled" value={apiKey} onChange={(e) => setApiKey(e.target.value)} disabled />
                   </label>
 
                   <label>
@@ -604,7 +586,7 @@ export default function App() {
                 <MetricCard label={t('equity')} value="$100,000" delta="+0.0%" icon={<WalletCards size={17} />} tone="cyan" helper={t('thisMonth')} />
                 <MetricCard label={t('pnl')} value="$0.00" delta="PAPER" icon={<CircleDollarSign size={17} />} tone="green" helper={t('thisMonth')} />
                 <MetricCard label={t('drawdown')} value="0.00%" delta="SAFE" icon={<ShieldCheck size={17} />} tone="violet" helper="24H" />
-                <MetricCard label={t('winRate')} value="92.0%" delta="MODEL" icon={<TrendingUp size={17} />} tone="amber" helper={t('thisMonth')} />
+                <MetricCard label={t('winRate')} value="N/A" delta="UNVALIDATED" icon={<TrendingUp size={17} />} tone="amber" helper="RESEARCH ONLY" />
               </section>
 
               <section className="content-grid">

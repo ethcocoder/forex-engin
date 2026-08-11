@@ -57,20 +57,28 @@ function engineBinary() {
 
 ipcMain.handle('engine:status', async () => {
   const cfg = loadBrokerConfig()
-  const hasCreds = Boolean(cfg.apiKey && cfg.accountId)
   return {
-    connected: hasCreds,
-    mode: cfg.mode || 'PAPER',
+    connected: false,
+    mode: 'RESEARCH_ONLY',
     version: 'elite10x-pr / production-desktop',
     heartbeat: new Date().toISOString(),
-    brokerConfig: cfg,
-    message: hasCreds ? `Connected to ${cfg.brokerId} (${cfg.mode} mode)` : 'Broker credentials are required for live data feeds. Currently running in safe paper mode.',
+    brokerConfig: { ...cfg, mode: 'RESEARCH_ONLY' },
+    message: 'Broker connectivity is locked. Saved preferences are not an authenticated connection and cannot submit orders.',
   }
 })
 
 ipcMain.handle('engine:saveConfig', async (_, cfg) => {
-  const success = saveBrokerConfig(cfg)
-  return { success, config: cfg }
+  // Save only a non-operative demo preference. The desktop app must not imply
+  // that credentials have been authenticated or that order routing is enabled.
+  const safeConfig = {
+    brokerId: 'oanda_demo',
+    apiKey: '',
+    accountId: '',
+    leverage: Number(cfg?.leverage) || 10,
+    mode: 'RESEARCH_ONLY',
+  }
+  const success = saveBrokerConfig(safeConfig)
+  return { success, config: safeConfig }
 })
 
 ipcMain.handle('engine:runChaos', async () => new Promise((resolve) => {

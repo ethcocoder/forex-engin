@@ -105,3 +105,14 @@ Thumbs.db
 *.so
 *.log
 __pycache__/
+
+# Downloaded or derived market data and generated research evidence are local artifacts.
+# Keep data source manifests and reproducible ingestion code in version control instead.
+data/*.csv
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/manifests/
+reports/*
+!reports/.gitkeep
