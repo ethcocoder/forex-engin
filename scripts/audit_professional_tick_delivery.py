@@ -129,46 +129,80 @@ def audit_file(path: Path, contract: dict[str, Any], chunk_rows: int) -> FileAud
     )
 
 
+def delivery_paths(input_path: Path) -> list[Path]:
+    if input_path.is_file():
+        return [input_path]
+    if input_path.is_dir():
+        paths = sorted(
+            path for path in input_path.rglob("*")
+            if path.is_file() and path.suffix.lower() in {".csv", ".parquet", ".pq"}
+        )
+        if paths:
+            return paths
+        raise ValueError(f"No CSV or Parquet delivery files found under {input_path}")
+    raise ValueError(f"Input delivery does not exist: {input_path}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Audit a licensed professional FX tick-data delivery")
-    parser.add_argument("--input", type=Path, required=True, help="CSV or Parquet delivery file")
+    parser.add_argument("--input", type=Path, required=True, help="CSV/Parquet file or a directory containing delivery files")
     parser.add_argument("--contract", type=Path, required=True, help="Provider field-mapping JSON")
     parser.add_argument("--entitlement", type=Path, required=True, help="Licence/usage attestation JSON")
     parser.add_argument("--report", type=Path, required=True, help="Output audit report JSON")
+    parser.add_argument("--expected-instruments", default="", help="Optional comma-separated canonical instruments required for coverage")
     parser.add_argument("--chunk-rows", type=int, default=1_000_000)
     args = parser.parse_args()
 
-    if not args.input.is_file():
-        raise SystemExit(f"Input delivery does not exist: {args.input}")
     if args.chunk_rows < 1:
         raise SystemExit("--chunk-rows must be positive")
+    try:
+        paths = delivery_paths(args.input)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     contract, entitlement = load_json(args.contract), load_json(args.entitlement)
     validate_contract(contract, entitlement)
-    file_audit = audit_file(args.input, contract, args.chunk_rows)
+    file_audits = [audit_file(path, contract, args.chunk_rows) for path in paths]
 
     failures: list[str] = []
-    if file_audit.invalid_timestamp_rows:
-        failures.append("invalid_timestamps")
-    if file_audit.invalid_quote_rows:
-        failures.append("invalid_quotes")
-    if file_audit.non_monotonic_timestamp_rows:
-        failures.append("non_monotonic_timestamps")
-    if not file_audit.instruments:
-        failures.append("missing_instruments")
+    for file_audit in file_audits:
+        if file_audit.invalid_timestamp_rows:
+            failures.append(f"invalid_timestamps:{Path(file_audit.path).name}")
+        if file_audit.invalid_quote_rows:
+            failures.append(f"invalid_quotes:{Path(file_audit.path).name}")
+        if file_audit.non_monotonic_timestamp_rows:
+            failures.append(f"non_monotonic_timestamps:{Path(file_audit.path).name}")
+        if not file_audit.instruments:
+            failures.append(f"missing_instruments:{Path(file_audit.path).name}")
+
+    observed_instruments = sorted({instrument for file_audit in file_audits for instrument in file_audit.instruments})
+    expected_instruments = sorted({item.strip() for item in args.expected_instruments.split(",") if item.strip()})
+    missing_instruments = sorted(set(expected_instruments) - set(observed_instruments))
+    if missing_instruments:
+        failures.append("incomplete_instrument_coverage")
+    all_first = [item.first_timestamp_utc for item in file_audits if item.first_timestamp_utc]
+    all_last = [item.last_timestamp_utc for item in file_audits if item.last_timestamp_utc]
 
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "professional_tick_delivery_audit",
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "provider": contract["provider"],
         "delivery_reference": contract.get("delivery_reference"),
         "licence_reference": entitlement["licence_reference"],
         "permitted_uses": sorted(set(entitlement["permitted_uses"])),
-        "file": file_audit.__dict__,
+        "files": [item.__dict__ for item in file_audits],
+        "coverage": {
+            "observed_instruments": observed_instruments,
+            "expected_instruments": expected_instruments,
+            "missing_instruments": missing_instruments,
+            "first_timestamp_utc": min(all_first) if all_first else None,
+            "last_timestamp_utc": max(all_last) if all_last else None,
+            "file_count": len(file_audits),
+        },
         "audit_failures": failures,
-        "research_authorization": "DENIED" if failures else "PENDING_COVERAGE_AND_CROSS_SOURCE_AUDIT",
+        "research_authorization": "DENIED" if failures else "PENDING_TIME_COVERAGE_AND_CROSS_SOURCE_AUDIT",
         "deployment_authorization": "DENIED",
-        "next_gate": "Verify full 2020-2025 coverage, seven-pair completeness, and independent-source reconciliation.",
+        "next_gate": "Verify complete 2020-2025 coverage by pair, then perform independent-source reconciliation.",
     }
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
