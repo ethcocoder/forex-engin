@@ -1,0 +1,10 @@
+{
+  "licence_reference": "REPLACE_WITH_EXECUTED_LICENCE_OR_ORDER_REFERENCE",
+  "permitted_uses": [
+    "research",
+    "model_training",
+    "model_validation"
+  ],
+  "retention_terms_reference": "REPLACE_WITH_PROVIDER_RETENTION_TERM_REFERENCE",
+  "restriction_note": "Do not include provider credentials or commercial terms in this file."
+}

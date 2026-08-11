@@ -1,0 +1,15 @@
+{
+  "provider": "LSEG Tick History",
+  "delivery_reference": "REPLACE_WITH_VENDOR_EXTRACT_ID",
+  "timestamp_timezone": "UTC",
+  "columns": {
+    "timestamp": "EVENT_TIMESTAMP_UTC",
+    "instrument": "RIC_OR_INSTRUMENT",
+    "bid": "BID_PRICE",
+    "ask": "ASK_PRICE",
+    "bid_size": "BID_SIZE",
+    "ask_size": "ASK_SIZE",
+    "venue": "VENUE",
+    "sequence": "SEQUENCE_NUMBER"
+  }
+}
