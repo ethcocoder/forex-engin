@@ -6,3 +6,4 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra")
 
 add_executable(elite10x_engine main.cpp)
+add_executable(sim_30_day sim_30_day.cpp)
