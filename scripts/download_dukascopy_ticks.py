@@ -219,9 +219,29 @@ def run(args: argparse.Namespace) -> int:
             )
             continue
 
-        if not source_path.exists() or source_path.read_bytes() != payload:
-            source_path.write_bytes(payload)
-        decoded = decode_bi5(payload, args.instrument, hour)
+        decoded = None
+        decode_error = None
+        for decode_attempt in range(args.retries + 1):
+            try:
+                decoded = decode_bi5(payload, args.instrument, hour)
+                break
+            except ValueError as exc:
+                decode_error = exc
+                # A partial HTTP response must never become a resumable cache entry.
+                source_path.unlink(missing_ok=True)
+                if decode_attempt >= args.retries:
+                    raise
+                print(
+                    f"[{hour_number}/{len(requested_hours)}] retrying malformed archive {source_path.name}",
+                    flush=True,
+                )
+                payload = fetch_archive(url, args.timeout_seconds, retries=0)
+                if payload is None:
+                    break
+
+        if payload is None or decoded is None:
+            raise ValueError(f"Unable to decode source archive {url}: {decode_error}")
+        source_path.write_bytes(payload)
         valid, invalid_count = validate_ticks(decoded)
         dataframes.append(valid)
         hour_manifests.append(
