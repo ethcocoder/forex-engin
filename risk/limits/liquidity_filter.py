@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import structlog
 
@@ -30,11 +30,13 @@ class SpreadFilter:
             overrides=self.pair_overrides
         )
 
-    def check(self, signal: AlphaSignal, pair: str, market_data: Dict[str, Any]) -> bool:
+    def check(self, signal: AlphaSignal, pair: str, portfolio_state_or_market_data: Any, market_data: Optional[Dict[str, Any]] = None) -> bool:
         """
         Evaluate real-time spread.
         """
-        # We expect market_data to contain current L1 book or explicit spread
+        if market_data is None:
+            market_data = portfolio_state_or_market_data
+            
         current_spread_pips = market_data.get("spread_pips")
         
         if current_spread_pips is None:

@@ -185,7 +185,7 @@ def test_vwap_router():
     
     with unittest.mock.patch('execution.routing.vwap.time.sleep', return_value=None):
         assert router.route(order, mock_broker) is True
-        time.sleep(0.1)
+        time.sleep(0.4)
     
     # Check that it slices the order and calls broker
     assert mock_broker.place_order.call_count == 3

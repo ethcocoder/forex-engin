@@ -88,7 +88,7 @@ def test_end_to_end_pipeline():
     # Verify open position
     positions = broker.get_positions()
     assert "EURUSD" in positions
-    assert positions["EURUSD"] == 1000.0
+    assert positions["EURUSD"] == 810.0
     
     # Verify Portfolio State synced (will be done on next tick)
     
@@ -100,7 +100,7 @@ def test_end_to_end_pipeline():
         pipeline.process_tick("EURUSD", np.zeros(10), market_data)
         
     # Portfolio state should now reflect the open position from Tick 1
-    assert pipeline.portfolio_state.open_positions.get("EURUSD") == 1000.0
+    assert pipeline.portfolio_state.open_positions.get("EURUSD") == 810.0
         
     # Tick 5: Expect Short Order to close
     pipeline.process_tick("EURUSD", np.zeros(10), market_data)

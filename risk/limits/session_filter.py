@@ -1,5 +1,5 @@
 from datetime import datetime, time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import structlog
 
@@ -38,10 +38,13 @@ class SessionFilter:
             trade_weekends=self.trade_weekends
         )
 
-    def check(self, signal: AlphaSignal, pair: str, market_data: Dict[str, Any]) -> bool:
+    def check(self, signal: AlphaSignal, pair: str, portfolio_state_or_market_data: Any, market_data: Optional[Dict[str, Any]] = None) -> bool:
         """
         Evaluate if the current UTC time is safe for trading.
         """
+        if market_data is None:
+            market_data = portfolio_state_or_market_data
+            
         # Convert signal timestamp to UTC datetime
         dt = datetime.utcfromtimestamp(signal.timestamp)
         

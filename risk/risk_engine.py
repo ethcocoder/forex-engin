@@ -137,8 +137,8 @@ class AntiFragileRiskEngine(BaseRiskEngine):
                 if signal.confidence < 0.85:
                     return None
 
-        # 3. Non-Linear Circuit Breakers
-        for limit in self.limits:
+        # 3. Non-Linear Circuit Breakers & Filters
+        for limit in self.limits + self.filters:
             if not limit.check(signal, pair, portfolio_state, market_data):
                 # Check if trade is risk-reducing (closing a position)
                 current_exposure = portfolio_state.open_positions.get(pair, 0.0)
