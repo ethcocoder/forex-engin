@@ -8,7 +8,25 @@
     "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
     "build": "tsc -b && vite build",
     "start": "electron .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "pack:linux": "electron-builder --linux --dir",
+    "dist:linux": "electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.elite10x.forexengin",
+    "productName": "ForexEnginDesktop",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": ["AppImage", "tar.gz"],
+      "category": "Finance"
+    }
   },
   "devEngines": {
     "packageManager": {
@@ -31,6 +49,7 @@
     "autoprefixer": "^10.5.4",
     "concurrently": "^10.0.4",
     "electron": "^43.3.0",
+    "electron-builder": "^26.15.3",
     "postcss": "^8.5.26",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
