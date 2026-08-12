@@ -1,0 +1,47 @@
+# Free-Data Exploratory Smoke Evidence
+
+**Run date:** 12 August 2026  
+**Dataset status:** `EXPLORATORY_RESEARCH_ONLY`  
+**Deployment status:** `DENIED`
+
+## Dataset Lineage
+
+The exploratory dataset was built from eight contiguous, manifest-verified one-hour EUR/USD tick chunks from Dukascopy’s Historical Data Export. The consolidated source contains **19,607 validated ticks** spanning **2024-01-02 00:00:01.340 UTC** through **2024-01-02 07:59:59.947 UTC**. Its consolidated SHA-256 is `aff13a3cfcb89b9c0b72fb419cb94bb14dfee32c4740803f13e4218d157811a3`.
+
+The raw-source and derived-bar manifests each record `EXPLORATORY_RESEARCH_ONLY`, with institutional execution validation, broker-demo authorization, and live-trading authorization all set to `DENIED`. The one-minute bar output contains **480** complete bars and is traceable to the full eight-file manifest chain.
+
+| Control | Recorded value |
+|---|---|
+| Provider | Dukascopy Historical Data Export |
+| Instrument | EUR/USD |
+| Free-source class | `free_public_broker_historical_export` |
+| Tick count | 19,607 |
+| Bar frequency | One minute |
+| Bar count | 480 |
+| Institutional execution validation | Denied |
+| Broker-demo authorization | Denied |
+| Live-trading authorization | Denied |
+
+## Purged Walk-Forward Smoke Result
+
+A deliberately constrained baseline was evaluated using three chronological folds, a 60-bar purge, a 10-bar embargo, executable bid/ask returns, and no synthetic data. It is a **diagnostic smoke test**, not model-selection evidence: the sample is shorter than one trading day and cannot establish stability across regimes.
+
+| Metric | Result |
+|---|---:|
+| Successful folds | 3 |
+| Mean balanced accuracy | 36.79% |
+| Mean macro F1 | 31.25% |
+| Mean trade coverage | 78.53% |
+| Aggregate executable cumulative return | -0.7582% |
+| Mean executable return per bar | -0.002439% |
+| Research status | `RESEARCH_ONLY` |
+
+The result is **negative** and therefore rejects any claim of deployable alpha or a 90% win rate. It demonstrates that the provenance, feature, purge, embargo, executable-return, and report-lock controls operate on genuine free-source historical ticks without manufacturing an attractive outcome.
+
+## Next Research Requirement
+
+The immediate requirement is materially broader free coverage across dates, volatility regimes, and the initial major-pair universe. Even if a future free-data study produces positive historical findings, free-source results cannot authorize execution; licensed multi-venue data and a separate authenticated broker-demo forward trial remain mandatory.
+
+## Reference
+
+[1]: https://www.dukascopy.com/swiss/english/marketwatch/historical/ "Dukascopy Historical Data Export"
