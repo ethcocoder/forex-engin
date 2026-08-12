@@ -45,3 +45,9 @@ The immediate requirement is materially broader free coverage across dates, vola
 ## Reference
 
 [1]: https://www.dukascopy.com/swiss/english/marketwatch/historical/ "Dukascopy Historical Data Export"
+
+## Expanded 23-Hour Check
+
+The same locked workflow was subsequently run on a contiguous 23-hour EUR/USD span ending at 23:00 UTC, with the provider-unavailable final hour preserved as an explicit gap rather than imputed. The consolidated sample contained **100,431 validated ticks** and **1,380** complete one-minute bars. Its SHA-256 was `df5246da1215c629962bdf4aa8303099582adac40418274e2962e6f186c70bd7`.
+
+The four-fold purged evaluation remained negative: mean balanced accuracy was **34.96%**, mean macro F1 was **31.83%**, mean executable return per bar was **-0.002402%**, and aggregate executable cumulative return was **-2.4963%**. The expanded result corroborates the original rejection of any deployable-alpha claim. It remains `RESEARCH_ONLY` with broker-demo and live trading denied.
