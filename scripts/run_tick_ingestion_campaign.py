@@ -145,6 +145,11 @@ def main() -> int:
         "kind": "historical_tick_ingestion_campaign",
         "source": "Dukascopy Historical Data Export",
         "source_reference": "https://www.dukascopy.com/swiss/english/marketwatch/historical/",
+        "source_class": "free_public_broker_historical_export",
+        "research_authorization": "EXPLORATORY_RESEARCH_ONLY",
+        "institutional_execution_validation": "DENIED",
+        "broker_demo_authorization": "DENIED",
+        "live_trading_authorization": "DENIED",
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "instruments": instruments,
         "requested_start_utc": start.isoformat(),
@@ -157,7 +162,7 @@ def main() -> int:
         "model_training_authorization": "DENIED unless validated_chunks equals total_chunks_planned and a separate data-quality audit passes.",
         "chunks": [asdict(item) for item in chunks],
     }
-    campaign_name = f"{','.join(instruments)}_{start:%Y%m%d}_{end:%Y%m%d}.campaign.json"
+    campaign_name = f"{','.join(instruments)}_{start:%Y%m%dT%H%MZ}_{end:%Y%m%dT%H%MZ}.campaign.json"
     campaign_path = campaign_dir / campaign_name
     campaign_path.write_text(json.dumps(campaign, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps({"campaign": str(campaign_path), "validated": campaign["validated_chunks"], "planned": total_planned, "remaining": campaign["remaining_chunks"]}, indent=2))

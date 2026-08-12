@@ -24,3 +24,14 @@ def test_campaign_chunk_names_are_deterministic():
     end = datetime(2024, 1, 8, tzinfo=timezone.utc)
 
     assert chunk_stem("EUR/USD", start, end) == "EURUSD_ticks_20240101T0000Z_20240108T0000Z"
+
+
+def test_intraday_campaign_file_names_include_hour_and_minute_boundaries():
+    first_start = datetime(2024, 1, 1, 0, tzinfo=timezone.utc)
+    first_end = datetime(2024, 1, 1, 1, tzinfo=timezone.utc)
+    second_start = datetime(2024, 1, 1, 1, tzinfo=timezone.utc)
+    second_end = datetime(2024, 1, 1, 2, tzinfo=timezone.utc)
+
+    first = f"EURUSD_{first_start:%Y%m%dT%H%MZ}_{first_end:%Y%m%dT%H%MZ}.campaign.json"
+    second = f"EURUSD_{second_start:%Y%m%dT%H%MZ}_{second_end:%Y%m%dT%H%MZ}.campaign.json"
+    assert first != second
