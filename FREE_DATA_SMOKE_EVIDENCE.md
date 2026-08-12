@@ -55,3 +55,7 @@ The four-fold purged evaluation remained negative: mean balanced accuracy was **
 ## Coverage Gate Status
 
 A manifest-driven coverage audit enforces a **90-day local exploratory-research minimum** before candidate training may be considered. The present EUR/USD collection contains one contiguous **23-hour** span across 23 individually hash-verified manifests. It therefore reports `INSUFFICIENT_COVERAGE` and `training_authorization: DENIED`. The 90-day threshold is a local data-sufficiency gate only; satisfying it would still not validate execution quality or permit broker-demo or live orders.
+
+## Stress-Regime Check
+
+A separate four-hour EUR/USD sample from **16 March 2020**, a high-volatility market period, was ingested as four independently verified source hours. The two-fold purged smoke evaluation again produced a negative aggregate executable return (**-0.6612%**), mean balanced accuracy of **30.25%**, and mean macro F1 of **24.70%**. This independent stress-period check reinforces that the current candidate baseline does not exhibit deployable performance and that free-data research must remain exploratory.
