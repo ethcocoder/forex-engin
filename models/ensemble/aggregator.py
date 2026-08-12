@@ -48,7 +48,8 @@ class GOATEnsembleAggregator(BaseModel):
         self.n_mc_passes = self.mc_estimator.n_forward_passes
         self.bma = BayesianModelAverager(model_names=[])
         self.meta_feature_names: Optional[List[str]] = None
-        
+        self.training_provenance: Optional[Dict[str, Any]] = None
+        self.expected_sub_model_names: List[str] = []
         logger.info("GOAT EnsembleAggregator initialized", clusters=list(self.clusters.keys()))
 
     def register_model(self, name: str, model: Any, cluster: str = "core", is_torch: bool = False) -> None:
@@ -64,92 +65,99 @@ class GOATEnsembleAggregator(BaseModel):
         logger.info("Sub-model registered", name=name, cluster=cluster)
 
     def fit(self, X: Any, y: Any = None, skip_oos: bool = False, **kwargs: Any) -> "GOATEnsembleAggregator":
+        """Fit only on purged out-of-fold sub-model predictions.
+
+        ``X`` is retained for BaseModel API compatibility but is intentionally not
+        used to create stacker features. The caller must supply predictions made
+        by base models that were not trained on the corresponding labelled row.
+        """
         if y is None:
             raise ValueError("Target labels y are required to train the EnsembleAggregator.")
+        if skip_oos:
+            raise ValueError("skip_oos is prohibited: stacking requires purged out-of-fold meta-features.")
+        oof_meta_features = kwargs.pop("oof_meta_features", None)
+        provenance = kwargs.pop("oof_provenance", None)
+        feature_names = kwargs.pop("oof_feature_names", None)
+        if kwargs:
+            raise ValueError(f"Unexpected EnsembleAggregator fit arguments: {sorted(kwargs)}")
+        if oof_meta_features is None:
+            raise ValueError("oof_meta_features are mandatory; on-sample sub-model predictions are prohibited.")
+        if not isinstance(provenance, dict):
+            raise ValueError("oof_provenance is mandatory and must document the purged walk-forward split.")
+        required_provenance = {"validation_type", "fold_count", "embargo_rows", "label_horizon_rows", "data_manifest_sha256"}
+        missing_provenance = sorted(required_provenance - set(provenance))
+        if missing_provenance:
+            raise ValueError(f"oof_provenance is incomplete: missing {', '.join(missing_provenance)}")
+        if provenance["validation_type"] != "purged_walk_forward":
+            raise ValueError("oof_provenance.validation_type must be 'purged_walk_forward'.")
 
-        X_arr = np.asarray(X)
-        n_samples = X_arr.shape[0] if X_arr.ndim > 0 else 1
+        meta_features = np.asarray(oof_meta_features, dtype=float)
+        targets = np.asarray(y).reshape(-1)
+        if meta_features.ndim == 1:
+            meta_features = meta_features.reshape(-1, 1)
+        if meta_features.ndim != 2 or len(meta_features) != len(targets):
+            raise ValueError("oof_meta_features must be two-dimensional with one row per target label.")
+        if not np.isfinite(meta_features).all() or not np.isfinite(targets).all():
+            raise ValueError("oof_meta_features and target labels must be finite.")
+        if feature_names is None:
+            feature_names = [f"oof_feature_{index}" for index in range(meta_features.shape[1])]
+        if len(feature_names) != meta_features.shape[1] or len(set(feature_names)) != len(feature_names):
+            raise ValueError("oof_feature_names must be unique and match the OOF feature width.")
 
-        logger.info("EnsembleAggregator fit started", n_samples=n_samples, skip_oos=skip_oos)
-        cluster_preds, cluster_uncerts, _ = self._collect_meta_data(X_arr)
-        if not cluster_preds:
-            raise ValueError("No sub-model predictions available. Register sub-models before training.")
-
-        meta_features = self._build_meta_features(cluster_preds, cluster_uncerts)
-        self.meta_feature_names = self._generate_meta_feature_names(cluster_preds)
-
-        logger.info(
-            "Meta-data collection complete",
-            clusters=list(cluster_preds.keys()),
-            n_features=meta_features.shape[1] if meta_features.ndim > 1 else 1,
-            n_samples=n_samples
-        )
-
+        self.meta_feature_names = list(feature_names)
+        self.training_provenance = dict(provenance)
+        self.expected_sub_model_names = sorted(self.sub_models)
         meta_features_df = pd.DataFrame(meta_features, columns=self.meta_feature_names)
         self.scaler.fit(meta_features_df)
         meta_scaled = pd.DataFrame(self.scaler.transform(meta_features_df), columns=self.meta_feature_names)
-
         ensemble_cfg = self.config.get("ensemble", {}) if isinstance(self.config, dict) else {}
-        n_splits = int(ensemble_cfg.get("stacking_n_splits", 5))
         lgbm_params = dict(ensemble_cfg.get("lgbm_params", {}))
         lgbm_params.setdefault("n_estimators", 100)
         lgbm_params.setdefault("random_state", 42)
         lgbm_params.setdefault("verbosity", -1)
-
         try:
             import lightgbm as lgb
             stacker = lgb.LGBMRegressor(**lgbm_params)
         except Exception:
             from sklearn.linear_model import Ridge
             stacker = Ridge()
-
-        logger.info("Stacking regressor initialized", regressor=stacker.__class__.__name__, params=lgbm_params)
-
-        if skip_oos or n_splits < 2:
-            logger.info("Training stacker on full dataset", n_samples=n_samples)
-            stacker.fit(meta_scaled, y)
-        else:
-            from sklearn.model_selection import KFold
-            oof_preds = np.zeros(n_samples, dtype=float)
-            kf = KFold(n_splits=min(n_splits, n_samples), shuffle=True, random_state=42)
-            logger.info("Starting out-of-fold training", n_splits=n_splits)
-            for fold, (train_idx, val_idx) in enumerate(kf.split(meta_scaled), start=1):
-                stacker_fold = stacker.__class__(**getattr(stacker, "get_params", lambda **kwargs: {})()) if hasattr(stacker, "get_params") else stacker
-                logger.info("Training stacker fold", fold=fold, train_size=len(train_idx), val_size=len(val_idx))
-                stacker_fold.fit(meta_scaled[train_idx], np.asarray(y)[train_idx])
-                oof_preds[val_idx] = stacker_fold.predict(meta_scaled[val_idx])
-            stacker.fit(meta_scaled, y)
-
+        stacker.fit(meta_scaled, targets)
         self.stacker = stacker
         self.lgbm_stacker = stacker
         self.n_mc_passes = self.mc_estimator.n_forward_passes
-        logger.info("EnsembleAggregator fit complete", stacker=stacker.__class__.__name__)
+        logger.info(
+            "EnsembleAggregator fit complete on purged OOF meta-features",
+            stacker=stacker.__class__.__name__,
+            n_samples=len(targets),
+            n_features=meta_features.shape[1],
+            fold_count=provenance["fold_count"],
+        )
         return self
 
+
     def predict(self, X: Any, return_signal: bool = True, regime: int = 0, volatility: float = 0.0, **kwargs: Any) -> Any:
+        if self.stacker is None or self.training_provenance is None:
+            raise RuntimeError("Ensemble inference is unavailable until a provenance-verified OOF stacker has been fitted.")
+        if self.expected_sub_model_names and sorted(self.sub_models) != self.expected_sub_model_names:
+            raise RuntimeError("Registered sub-models do not match the model set recorded with the fitted stacker.")
         X_arr = np.asarray(X)
         cluster_preds, cluster_uncerts, sub_model_preds = self._collect_meta_data(X_arr)
-
         if not cluster_preds:
             raise ValueError("No sub-model predictions available. Register sub-models before inference.")
-
         meta_features = self._build_meta_features(cluster_preds, cluster_uncerts)
+        inference_feature_names = self._generate_meta_feature_names(cluster_preds)
+        if self.meta_feature_names != inference_feature_names:
+            raise RuntimeError("Live ensemble meta-feature layout differs from the provenance-verified training layout.")
         avg_uncertainty = float(np.mean([np.mean(v) for v in cluster_uncerts.values()]))
-
-        if self.meta_feature_names is None:
-            self.meta_feature_names = self._generate_meta_feature_names(cluster_preds)
-
-        if avg_uncertainty < self.uncertainty_threshold and self.stacker is not None:
-            meta_scaled = self.scaler.transform(meta_features)
-            if self.meta_feature_names is not None:
-                meta_scaled = pd.DataFrame(meta_scaled, columns=self.meta_feature_names)
-            final_pred = self.stacker.predict(meta_scaled)
-            path = "STACKER"
+        if avg_uncertainty >= self.uncertainty_threshold:
+            summary_pred = 0.0
+            path = "ABSTAIN_HIGH_UNCERTAINTY"
         else:
-            final_pred = np.mean(list(cluster_preds.values()), axis=0)
-            path = "BMA_FALLBACK"
-
-        summary_pred = float(np.mean(final_pred))
+            meta_scaled = self.scaler.transform(meta_features)
+            meta_scaled = pd.DataFrame(meta_scaled, columns=self.meta_feature_names)
+            final_pred = self.stacker.predict(meta_scaled)
+            summary_pred = float(np.mean(final_pred))
+            path = "STACKER"
         
         # Online RL: If BMA has enough reinforcement data, adjust confidence
         # based on whether high-performing models agree with the signal direction
@@ -182,6 +190,8 @@ class GOATEnsembleAggregator(BaseModel):
             volatility=volatility
         )
 
+        signal.metadata["ensemble_path"] = path
+        signal.metadata["training_validation_type"] = self.training_provenance["validation_type"]
         if return_signal:
             return signal
         return summary_pred
@@ -205,6 +215,8 @@ class GOATEnsembleAggregator(BaseModel):
             "signal_generator": self.signal_generator,
             "_torch_models": self._torch_models,
             "meta_feature_names": self.meta_feature_names,
+            "training_provenance": self.training_provenance,
+            "expected_sub_model_names": self.expected_sub_model_names,
         }
         with open(path, "wb") as f:
             pickle.dump(state, f)
@@ -235,8 +247,13 @@ class GOATEnsembleAggregator(BaseModel):
         self.signal_generator = state.get("signal_generator", self.signal_generator)
         self._torch_models = state.get("_torch_models", self._torch_models)
         self.meta_feature_names = state.get("meta_feature_names", self.meta_feature_names)
-        self.sub_models = {}
-        self.bma = BayesianModelAverager(model_names=list(self.sub_models.keys()))
+        self.training_provenance = state.get("training_provenance")
+        self.expected_sub_model_names = sorted(state.get("expected_sub_model_names", []))
+        if not self.training_provenance or not self.expected_sub_model_names:
+            raise RuntimeError("Legacy or incomplete ensemble state rejected: verified OOF provenance and model identities are required.")
+        if self.sub_models and sorted(self.sub_models) != self.expected_sub_model_names:
+            raise RuntimeError("Registered sub-models do not match the model set recorded in the ensemble state.")
+        self.bma = BayesianModelAverager(model_names=self.expected_sub_model_names)
 
     def _collect_meta_data(self, X: np.ndarray) -> Any:
         cluster_preds: Dict[str, np.ndarray] = {}

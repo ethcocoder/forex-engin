@@ -127,8 +127,27 @@ def test_ensemble_aggregator(sample_data, tmp_path):
     agg.register_model("dummy1", DummyBaseModel(), is_torch=True)
     agg.register_model("dummy2", DummyBaseModel(), is_torch=False)
     
-    # Fit the stacker (skip_oos=True for faster test)
-    agg.fit(X, y, skip_oos=True)
+    # Build deterministic stand-in OOF meta-features; production callers must
+    # create these through the purged walk-forward harness.
+    cluster_preds, cluster_uncerts, _ = agg._collect_meta_data(X)
+    oof_meta_features = agg._build_meta_features(cluster_preds, cluster_uncerts)
+    oof_feature_names = agg._generate_meta_feature_names(cluster_preds)
+    provenance = {
+        "validation_type": "purged_walk_forward",
+        "fold_count": 2,
+        "embargo_rows": 10,
+        "label_horizon_rows": 5,
+        "data_manifest_sha256": "a" * 64,
+    }
+    with pytest.raises(ValueError, match="skip_oos"):
+        agg.fit(X, y, skip_oos=True)
+    agg.fit(
+        X,
+        y,
+        oof_meta_features=oof_meta_features,
+        oof_feature_names=oof_feature_names,
+        oof_provenance=provenance,
+    )
     
     # Predict (returns AlphaSignal by default)
     signal = agg.predict(X[:5])
@@ -149,3 +168,11 @@ def test_ensemble_aggregator(sample_data, tmp_path):
     assert loaded.uncertainty_threshold == agg.uncertainty_threshold
     assert loaded.n_mc_passes == agg.n_mc_passes
     assert loaded.lgbm_stacker is not None
+    with pytest.raises(RuntimeError, match="model set"):
+        loaded.predict(X[:5])
+
+    restored = EnsembleAggregator()
+    restored.register_model("dummy1", DummyBaseModel(), is_torch=True)
+    restored.register_model("dummy2", DummyBaseModel(), is_torch=False)
+    restored.load(save_path)
+    assert isinstance(restored.predict(X[:5]), AlphaSignal)
