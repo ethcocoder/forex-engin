@@ -13,8 +13,35 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+import download_dukascopy_ticks as dukascopy
 from download_dukascopy_ticks import archive_url, decode_bi5, validate_ticks
 from prepare_tick_bars import build_bars, verify_manifest
+
+
+def test_fetch_archive_retries_transient_socket_timeouts(monkeypatch):
+    attempts = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+        def read(self):
+            return b"validated-payload"
+
+    def flaky_urlopen(request, timeout):
+        attempts.append((request.full_url, timeout))
+        if len(attempts) == 1:
+            raise TimeoutError("temporary source stall")
+        return Response()
+
+    monkeypatch.setattr(dukascopy, "urlopen", flaky_urlopen)
+    monkeypatch.setattr(dukascopy.time, "sleep", lambda _: None)
+
+    assert dukascopy.fetch_archive("https://example.test/ticks.bi5", timeout_seconds=1, retries=1) == b"validated-payload"
+    assert len(attempts) == 2
 
 
 def test_archive_url_uses_zero_based_months():
@@ -71,6 +98,11 @@ def test_manifest_gate_rejects_changed_dataset(tmp_path: Path):
                 "dataset_sha256": hashlib.sha256(dataset.read_bytes()).hexdigest(),
                 "source": "Dukascopy Historical Data Export",
                 "source_reference": "https://www.dukascopy.com/swiss/english/marketwatch/historical/",
+                "source_class": "free_public_broker_historical_export",
+                "research_authorization": "EXPLORATORY_RESEARCH_ONLY",
+                "institutional_execution_validation": "DENIED",
+                "broker_demo_authorization": "DENIED",
+                "live_trading_authorization": "DENIED",
                 "rows": 1,
             }
         ),

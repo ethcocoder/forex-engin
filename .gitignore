@@ -117,3 +117,4 @@ data/manifests/
 reports/*
 !reports/.gitkeep
 data/campaigns/
+data/derived/

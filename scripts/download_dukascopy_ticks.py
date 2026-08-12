@@ -97,7 +97,7 @@ def fetch_archive(url: str, timeout_seconds: int, retries: int) -> bytes | None:
                 time.sleep(2**attempt)
                 continue
             raise RuntimeError(f"Dukascopy returned HTTP {exc.code} for {url}") from exc
-        except URLError as exc:
+        except (URLError, TimeoutError, OSError) as exc:
             if attempt < retries:
                 time.sleep(2**attempt)
                 continue
@@ -271,6 +271,11 @@ def run(args: argparse.Namespace) -> int:
         "kind": "real_historical_tick_data",
         "source": "Dukascopy Historical Data Export",
         "source_reference": "https://www.dukascopy.com/swiss/english/marketwatch/historical/",
+        "source_class": "free_public_broker_historical_export",
+        "research_authorization": "EXPLORATORY_RESEARCH_ONLY",
+        "institutional_execution_validation": "DENIED",
+        "broker_demo_authorization": "DENIED",
+        "live_trading_authorization": "DENIED",
         "downloaded_at_utc": datetime.now(timezone.utc).isoformat(),
         "instrument": args.instrument.replace("/", "").upper(),
         "requested_start_utc": start.isoformat(),

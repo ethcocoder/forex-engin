@@ -48,6 +48,10 @@ def verify_manifest(dataset_path: Path, manifest_path: Path) -> dict:
         raise ValueError("Manifest dataset_path does not identify the supplied dataset")
     if not manifest.get("source") or not manifest.get("source_reference"):
         raise ValueError("Manifest lacks source provenance")
+    if manifest.get("research_authorization") not in {"EXPLORATORY_RESEARCH_ONLY", "LICENSED_RESEARCH"}:
+        raise ValueError("Manifest lacks an approved, explicit research authorization")
+    if manifest.get("live_trading_authorization") != "DENIED":
+        raise ValueError("Source manifest must explicitly deny live-trading authorization")
     if int(manifest.get("rows", 0)) <= 0:
         raise ValueError("Manifest reports no usable source rows")
     return manifest
@@ -112,6 +116,11 @@ def main() -> int:
         "source_tick_dataset": args.ticks.name,
         "source_tick_sha256": manifest["dataset_sha256"],
         "source_manifest": args.manifest.name,
+        "source_class": manifest["source_class"],
+        "research_authorization": manifest["research_authorization"],
+        "institutional_execution_validation": manifest.get("institutional_execution_validation", "DENIED"),
+        "broker_demo_authorization": manifest.get("broker_demo_authorization", "DENIED"),
+        "live_trading_authorization": manifest["live_trading_authorization"],
         "instrument": manifest["instrument"],
         "frequency": args.frequency,
         "rows": len(bars),
