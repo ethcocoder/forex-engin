@@ -158,7 +158,7 @@ def main() -> int:
         "total_chunks_planned": total_planned,
         "validated_chunks": sum(item.status in {"validated", "already_validated"} for item in chunks),
         "failed_chunks": sum(item.status == "failed" for item in chunks),
-        "remaining_chunks": max(0, total_planned - len(chunks)),
+        "remaining_chunks": max(0, total_planned - sum(item.status in {"validated", "already_validated"} for item in chunks)),
         "model_training_authorization": "DENIED unless validated_chunks equals total_chunks_planned and a separate data-quality audit passes.",
         "chunks": [asdict(item) for item in chunks],
     }
