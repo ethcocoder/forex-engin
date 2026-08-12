@@ -153,7 +153,8 @@ class GOATEnsembleAggregator(BaseModel):
             summary_pred = 0.0
             path = "ABSTAIN_HIGH_UNCERTAINTY"
         else:
-            meta_scaled = self.scaler.transform(meta_features)
+            inference_features_df = pd.DataFrame(meta_features, columns=self.meta_feature_names)
+            meta_scaled = self.scaler.transform(inference_features_df)
             meta_scaled = pd.DataFrame(meta_scaled, columns=self.meta_feature_names)
             final_pred = self.stacker.predict(meta_scaled)
             summary_pred = float(np.mean(final_pred))
