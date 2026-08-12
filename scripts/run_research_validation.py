@@ -43,6 +43,13 @@ def validate_manifest_chain(bars: Path, bars_manifest_path: Path, tick_manifest_
         raise ValueError("Bar manifest does not chain to the supplied source tick manifest")
     if bars_manifest.get("instrument") != tick_manifest.get("instrument"):
         raise ValueError("Instrument mismatch across manifest chain")
+    if bars_manifest.get("research_authorization") != tick_manifest.get("research_authorization"):
+        raise ValueError("Research authorization differs across the manifest chain")
+    if tick_manifest.get("research_authorization") not in {"EXPLORATORY_RESEARCH_ONLY", "LICENSED_RESEARCH"}:
+        raise ValueError("Source data lacks explicit research authorization")
+    for field in ("institutional_execution_validation", "broker_demo_authorization", "live_trading_authorization"):
+        if bars_manifest.get(field) != "DENIED" or tick_manifest.get(field) != "DENIED":
+            raise ValueError(f"Manifest chain must explicitly deny execution authorization: {field}")
     return {"bars": bars_manifest, "ticks": tick_manifest}
 
 
@@ -81,6 +88,9 @@ def main() -> int:
         "report_kind": "historical_research_validation",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "status": result.get("status"),
+        "research_authorization": chain["ticks"]["research_authorization"],
+        "institutional_execution_validation": chain["ticks"]["institutional_execution_validation"],
+        "broker_demo_authorization": chain["ticks"]["broker_demo_authorization"],
         "deployment_authorization": "DENIED",
         "reason": "Historical research validation, regardless of result, does not authorize broker-demo or live trading.",
         "manifest_chain": {

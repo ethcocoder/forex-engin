@@ -118,3 +118,4 @@ reports/*
 !reports/.gitkeep
 data/campaigns/
 data/derived/
+data/consolidated/
