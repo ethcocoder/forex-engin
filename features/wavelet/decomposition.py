@@ -42,7 +42,10 @@ class WaveletDecomposition(BaseFeature):
         """
         self.validate(df)
         
-        close = df["close"].values
+        # Pandas/NumPy can expose a read-only view (notably with newer copy-on-write
+        # behaviour). PyWavelets requires a writable contiguous numeric buffer, so
+        # materialise an explicit float64 copy before applying causal rolling DWTs.
+        close = df["close"].to_numpy(dtype=np.float64, copy=True)
         n = len(df)
         
         window = kwargs.get("rolling_window", self.rolling_window)

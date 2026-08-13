@@ -23,7 +23,7 @@ class TestForexFeaturePipeline(unittest.TestCase):
         # Create a mock dataset of 300 ticks/candles with high, low, open, close, bid, ask, volume
         np.random.seed(42)
         n = 300
-        time_index = pd.date_range(start="2026-01-01", periods=n, freq="min")
+        time_index = pd.date_range(start="2026-01-01", periods=n, freq="min", tz="UTC")
         
         # Generate random walk mid prices
         steps = np.random.normal(0, 0.0005, n)

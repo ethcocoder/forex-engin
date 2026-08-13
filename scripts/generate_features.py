@@ -1,69 +1,70 @@
-import os
-import sys
-import argparse
-import pandas as pd
-import structlog
-from pathlib import Path
+"""Generate causal research features from timestamped FX market data."""
 
-# Ensure the root directory is in the Python path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import sys
+
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from features.pipeline import FeaturePipeline
-from configs.loader import load_config
+from research.contracts import MarketDataContract, build_dataset_manifest
 
-logger = structlog.get_logger()
 
-def main():
-    parser = argparse.ArgumentParser(description="Generate features from raw historical forex data")
-    parser.add_argument("--input", type=str, default="data/EUR_USD_ticks.csv", help="Path to raw CSV data")
-    parser.add_argument("--output", type=str, default="data/EUR_USD_features.csv", help="Path to save generated features CSV")
-    
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Generate causal features without synthetic market or alternative data."
+    )
+    parser.add_argument("--input", type=Path, default=Path("data/EUR_USD_ticks.csv"))
+    parser.add_argument("--output", type=Path, default=Path("data/EUR_USD_features.csv"))
+    parser.add_argument("--pair", default="EUR_USD")
+    parser.add_argument("--provider", default="unspecified")
+    parser.add_argument(
+        "--include-microstructure",
+        action="store_true",
+        help="Require and use real bid/ask microstructure fields from the input.",
+    )
+    parser.add_argument(
+        "--forward-fill",
+        action="store_true",
+        help="Apply an explicit causal forward-fill after feature computation.",
+    )
     args = parser.parse_args()
-    
-    if not os.path.exists(args.input):
-        logger.error(f"Input file {args.input} does not exist. Did you run download_data.py?")
-        sys.exit(1)
-        
-    logger.info(f"Loading raw data from {args.input}...")
-    df = pd.read_csv(args.input, index_col="timestamp", parse_dates=True)
-    
-    if df.empty:
-        logger.error("Loaded dataframe is empty.")
-        sys.exit(1)
-        
-    # Synthesize bid/ask if they are missing (e.g. for yfinance OHLCV-only data)
-    if "bid" not in df.columns or "ask" not in df.columns:
-        logger.info("Raw data does not contain 'bid'/'ask' columns. Synthesizing dummy bid/ask using dynamic spread...")
-        spread_val = df["close"] * 0.0001
-        if "bid" not in df.columns:
-            df["bid"] = df["close"] - spread_val / 2.0
-        if "ask" not in df.columns:
-            df["ask"] = df["close"] + spread_val / 2.0
-            
-    logger.info(f"Loaded {len(df)} rows. Instantiating feature pipeline...")
-    
-    # Load default configuration
-    try:
-        config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "configs", "config.yaml")
-        app_config = load_config(config_path)
-        config = app_config.model_dump() if hasattr(app_config, "model_dump") else app_config.dict()
-    except Exception as e:
-        logger.warning(f"Could not load full config, using empty dict: {e}")
-        config = {}
-        
-    # Instantiate the master pipeline
-    pipeline = FeaturePipeline(config=config)
-    
-    logger.info("Executing compute_all() — this may take a moment depending on the data size...")
-    features_df = pipeline.compute_all(df)
-    
-    # Ensure output directory exists
-    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
-    
-    logger.info(f"Saving {features_df.shape[1]} features to {args.output}...")
-    features_df.to_csv(args.output)
-    
-    logger.info("Feature generation completed successfully!")
+
+    if not args.input.exists():
+        raise FileNotFoundError(f"Input file does not exist: {args.input}")
+
+    raw = pd.read_csv(args.input, parse_dates=["timestamp"])
+    raw["timestamp"] = pd.to_datetime(raw["timestamp"], utc=True)
+    raw = raw.set_index("timestamp").sort_index()
+    contract = MarketDataContract(
+        pair=args.pair,
+        provider=args.provider,
+        require_bid_ask_pair=args.include_microstructure,
+    )
+    raw = contract.validate(raw)
+    manifest = build_dataset_manifest(raw, contract)
+
+    pipeline = FeaturePipeline(
+        include_microstructure=args.include_microstructure,
+        forward_fill=args.forward_fill,
+    )
+    features = pipeline.compute_all(raw)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    features.to_csv(args.output, index_label="timestamp")
+    manifest_path = args.output.with_suffix(args.output.suffix + ".manifest.json")
+    manifest_path.write_text(
+        __import__("json").dumps(manifest.to_dict(), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    print(
+        f"Generated {features.shape[1]} causal features for {len(features)} rows. "
+        f"Manifest: {manifest_path}"
+    )
+
 
 if __name__ == "__main__":
     main()

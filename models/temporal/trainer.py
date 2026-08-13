@@ -48,18 +48,16 @@ class TimeSeriesPurgedTrainer:
             val_end = min(val_start + segment_size, n_samples)
             val_indices = np.arange(val_start, val_end)
             
-            # Formulate training indices by excluding purged and embargoed regions
-            train_indices = []
-            for idx in range(n_samples):
-                # 1. Purging: exclude targets overlapping validation start
-                if idx >= (val_start - self.label_horizon) and idx < val_end:
-                    continue
-                # 2. Embargoing: exclude correlation spillover following validation end
-                if idx >= val_end and idx < (val_end + embargo):
-                    continue
-                train_indices.append(idx)
-                
-            splits.append((np.array(train_indices), val_indices))
+            # Expanding-window training: do not train on future observations.
+            # A label created at index i reaches i + label_horizon, so retain only
+            # samples whose label completes strictly before validation begins.
+            train_end = max(0, val_start - self.label_horizon)
+            train_indices = np.arange(train_end, dtype=np.int64)
+
+            # `embargo` is retained in the public configuration for compatibility,
+            # but is naturally satisfied here because future samples are never used
+            # in an expanding-window fold. A subsequent fold begins later in time.
+            splits.append((train_indices, val_indices))
             
         return splits
 

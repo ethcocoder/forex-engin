@@ -101,3 +101,11 @@ Thumbs.db
 !*.dll
 !*.so
 !*.dylib
+
+# Generated research datasets, models, predictions, and gate reports
+artifacts/
+
+# Locally compiled native acceleration outputs (built via scripts/compile_speedups.py)
+/features/wavelet/kalman_speedups.so
+/models/rl_agent/rl_speedups.so
+/models/meta_learner/maml_speedups.so

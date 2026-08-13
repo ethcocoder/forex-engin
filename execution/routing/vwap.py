@@ -54,6 +54,8 @@ class VWAPRouter:
             self.volume_profile = HISTORICAL_VOLUME_PROFILE
             
         self.base_interval = self.duration_seconds / self.slices
+        self._active_thread: Optional[threading.Thread] = None
+        self._thread_lock = threading.Lock()
         
         logger.info(
             "VWAPRouter initialized",
@@ -71,6 +73,14 @@ class VWAPRouter:
             res = broker.place_order(order)
             return res is not None and res.get("status") in ["FILLED", "PENDING"]
 
+        with self._thread_lock:
+            if self._active_thread is not None and self._active_thread.is_alive():
+                logger.warning(
+                    "VWAP parent order rejected because a schedule is already active",
+                    pair=order.pair,
+                )
+                return False
+
         child_sizes = self._compute_vwap_slices(order.size)
 
         vwap_thread = threading.Thread(
@@ -78,6 +88,8 @@ class VWAPRouter:
             args=(order, child_sizes, broker),
             daemon=True
         )
+        with self._thread_lock:
+            self._active_thread = vwap_thread
         vwap_thread.start()
 
         logger.info(
@@ -88,6 +100,20 @@ class VWAPRouter:
             duration_sec=self.duration_seconds
         )
         return True
+
+    def wait_for_completion(self, timeout: Optional[float] = None) -> bool:
+        """Wait for the active parent schedule and report whether it completed."""
+        with self._thread_lock:
+            active_thread = self._active_thread
+        if active_thread is None:
+            return True
+        active_thread.join(timeout=timeout)
+        return not active_thread.is_alive()
+
+    def is_running(self) -> bool:
+        """Return whether a parent VWAP schedule is still executing."""
+        with self._thread_lock:
+            return self._active_thread is not None and self._active_thread.is_alive()
 
     def _compute_vwap_slices(self, total_size: float) -> List[float]:
         """

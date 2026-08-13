@@ -1,48 +1,58 @@
-import pandas as pd
-import numpy as np
+"""Causal feature orchestration for offline research and live-compatible inference."""
+
+from __future__ import annotations
+
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
+
+import pandas as pd
 import structlog
-from features.microstructure.spread import BidAskSpread
-from features.microstructure.order_flow import OrderFlow
-from features.microstructure.lob_features import LOBFeatures
-from features.microstructure.vpin import VPIN
-from features.microstructure.kyle_lambda import KylesLambda
+
 from features.microstructure.amihud import AmihudIlliquidity
-from features.technical.volatility import VolatilityEstimators
-from features.technical.momentum import MomentumFeatures
+from features.microstructure.kyle_lambda import KylesLambda
+from features.microstructure.lob_features import LOBFeatures
+from features.microstructure.order_flow import OrderFlow
+from features.microstructure.spread import BidAskSpread
+from features.microstructure.vpin import VPIN
 from features.technical.mean_reversion import MeanReversionFeatures
+from features.technical.momentum import MomentumFeatures
 from features.technical.trend import TrendFeatures
+from features.technical.volatility import VolatilityEstimators
 from features.technical.volume import VolumeFeatures
 from features.wavelet.decomposition import WaveletDecomposition
 from features.wavelet.kalman_filter import KalmanStateFilter
-from features.alternative.cot_positioning import COTPositioning
-from features.alternative.macro_surprise import MacroSurprise
-from features.alternative.options_flow import OptionsFlow
-from features.alternative.sentiment import SentimentFeatures
 
 logger = structlog.get_logger()
 
 
 class FeaturePipeline:
-    """
-    Feature Extraction Pipeline.
-    Orchestrates all feature extraction classes.
-    Enforces NaN propagation rules, min lookback periods, and handles data joins.
-    Ensures identical output between offline backtest batching and online live streaming.
+    """Compute an explicit causal feature set.
+
+    The default pipeline includes only features calculated directly from OHLCV
+    observations. Microstructure features are opt-in and require their actual
+    source fields. Alternative-data features are deliberately excluded because
+    they require separate provider contracts, release timestamps, and revision
+    policies. Missing warm-up values are retained as NaN so downstream training
+    can drop them causally; this class never backfills future observations.
     """
 
-    def __init__(self, config: Any = None) -> None:
+    def __init__(
+        self,
+        config: Any = None,
+        *,
+        include_microstructure: bool = False,
+        include_alternative: bool = False,
+        forward_fill: bool = False,
+    ) -> None:
+        if include_alternative:
+            raise ValueError(
+                "Alternative-data features require a provider-specific, timestamped "
+                "data contract and are not enabled by the causal core pipeline."
+            )
         self.config = config
-        
-        # Instantiate all sub-feature extractors
-        self.extractors = {
-            "spread": BidAskSpread(name="spread", config=config),
-            "order_flow": OrderFlow(config=config),
-            "lob": LOBFeatures(config=config),
-            "vpin": VPIN(config=config),
-            "kyle_lambda": KylesLambda(config=config),
-            "amihud": AmihudIlliquidity(config=config),
+        self.include_microstructure = include_microstructure
+        self.forward_fill = forward_fill
+        self.extractors: Dict[str, Any] = {
             "volatility": VolatilityEstimators(config=config),
             "momentum": MomentumFeatures(config=config),
             "mean_reversion": MeanReversionFeatures(config=config),
@@ -50,72 +60,75 @@ class FeaturePipeline:
             "volume": VolumeFeatures(config=config),
             "wavelet": WaveletDecomposition(config=config),
             "kalman": KalmanStateFilter(config=config),
-            "cot": COTPositioning(config=config),
-            "macro": MacroSurprise(config=config),
-            "options": OptionsFlow(config=config),
-            "sentiment": SentimentFeatures(config=config),
         }
-        
-        # We need a minimum lookback of 256 for wavelet decomposition
+        if include_microstructure:
+            self.extractors.update(
+                {
+                    "spread": BidAskSpread(name="spread", config=config),
+                    "order_flow": OrderFlow(config=config),
+                    "lob": LOBFeatures(config=config),
+                    "vpin": VPIN(config=config),
+                    "kyle_lambda": KylesLambda(config=config),
+                    "amihud": AmihudIlliquidity(config=config),
+                }
+            )
         self.min_lookback = 256
 
-    def compute_all(self, df: pd.DataFrame, **kwargs: Any) -> pd.DataFrame:
-        """
-        Orchestrates running all feature extractors sequentially on the raw DataFrame.
-        Concatenates all resulting feature columns, handles NaN values, and returns the master matrix.
-        """
-        t_start = time.perf_counter()
-        
-        if len(df) < self.min_lookback:
-            logger.warning(
-                "DataFrame length is less than the minimum required lookback.",
-                length=len(df),
-                required=self.min_lookback
+    def _validate_input(self, frame: pd.DataFrame) -> None:
+        if not isinstance(frame, pd.DataFrame):
+            raise ValueError("Feature input must be a pandas DataFrame.")
+        required = {"open", "high", "low", "close", "volume"}
+        missing = sorted(required.difference(frame.columns))
+        if missing:
+            raise ValueError(f"Missing OHLCV input columns: {missing}.")
+        if not isinstance(frame.index, pd.DatetimeIndex):
+            raise ValueError("Feature input must use a timestamp DatetimeIndex.")
+        if frame.index.tz is None:
+            raise ValueError("Feature timestamps must be timezone-aware.")
+        if not frame.index.is_monotonic_increasing or frame.index.has_duplicates:
+            raise ValueError("Feature timestamps must be unique and chronological.")
+        if self.include_microstructure and not {"bid", "ask"}.issubset(frame.columns):
+            raise ValueError(
+                "Microstructure features require real bid and ask columns; synthetic quotes are forbidden."
             )
-            
-        feature_dfs: List[pd.DataFrame] = []
-        
+
+    def compute_all(self, frame: pd.DataFrame, **kwargs: Any) -> pd.DataFrame:
+        """Compute all configured features without non-causal backfilling."""
+        self._validate_input(frame)
+        started = time.perf_counter()
+        feature_frames: List[pd.DataFrame] = []
         for name, extractor in self.extractors.items():
-            try:
-                t_feat_start = time.perf_counter()
-                feat_df = extractor.compute(df, **kwargs)
-                t_feat_end = time.perf_counter()
-                
-                # Check for output shape matches
-                if len(feat_df) != len(df):
-                    raise ValueError(
-                        f"Extractor '{name}' returned {len(feat_df)} rows, expected {len(df)} rows."
-                    )
-                    
-                feature_dfs.append(feat_df)
-                
-                logger.debug(
-                    "Computed feature extractor successfully",
-                    extractor=name,
-                    elapsed_ms=(t_feat_end - t_feat_start) * 1000.0
+            extractor_started = time.perf_counter()
+            feature_frame = extractor.compute(frame, **kwargs)
+            if not feature_frame.index.equals(frame.index):
+                raise ValueError(
+                    f"Extractor '{name}' returned a misaligned timestamp index."
                 )
-            except Exception as e:
-                logger.error(
-                    "Feature extraction failed in pipeline",
-                    extractor=name,
-                    error=str(e)
+            if len(feature_frame) != len(frame):
+                raise ValueError(
+                    f"Extractor '{name}' returned {len(feature_frame)} rows; expected {len(frame)}."
                 )
-                raise e
-                
-        # Combine all features along the columns axis
-        master_features = pd.concat(feature_dfs, axis=1)
-        
-        # Enforce NaN resolution rules:
-        # 1. Forward-fill holes from stale/delayed trades
-        # 2. Back-fill initial lookback window startup periods
-        master_features = master_features.ffill().bfill().fillna(0.0)
-        
-        t_end = time.perf_counter()
+            if feature_frame.columns.duplicated().any():
+                raise ValueError(f"Extractor '{name}' returned duplicate columns.")
+            feature_frames.append(feature_frame)
+            logger.debug(
+                "Computed causal feature extractor",
+                extractor=name,
+                elapsed_ms=(time.perf_counter() - extractor_started) * 1000.0,
+            )
+
+        features = pd.concat(feature_frames, axis=1)
+        if features.columns.duplicated().any():
+            raise ValueError("Feature pipeline generated duplicate feature names.")
+        if self.forward_fill:
+            # Forward fill is causal but must be an explicit research decision.
+            features = features.ffill()
+
         logger.info(
-            "Completed entire feature pipeline computation",
-            total_features=master_features.shape[1],
-            rows=master_features.shape[0],
-            total_elapsed_ms=(t_end - t_start) * 1000.0
+            "Completed causal feature pipeline",
+            total_features=features.shape[1],
+            rows=len(features),
+            include_microstructure=self.include_microstructure,
+            elapsed_ms=(time.perf_counter() - started) * 1000.0,
         )
-        
-        return master_features
+        return features

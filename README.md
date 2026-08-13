@@ -1,13 +1,13 @@
 # FOREX NEURAL TRADING ENGINE
-### Production-Grade Quantitative Trading System
+### Research-Stage Quantitative FX System
 
-> Inspired by Renaissance Technologies' Medallion Fund philosophy: **the model decides, not humans.**
+> This project uses common quantitative-research patterns. It has **no affiliation with Renaissance Technologies or its funds**, and it is not authorised for live trading.
 
 ---
 
 ## Overview
 
-A full production-grade Forex trading engine combining deep learning, reinforcement learning, and classical quantitative methods into a unified neural ensemble. Designed to identify and exploit statistical inefficiencies across Forex markets with institutional-grade risk management and execution.
+A research and validation platform for causal FX data preparation, model training, out-of-sample diagnostics, cost-scenario backtesting, risk gates, and audit artifacts. Broker integration is intentionally deferred until independently defined research gates are satisfied.
 
 ---
 
@@ -58,15 +58,16 @@ A full production-grade Forex trading engine combining deep learning, reinforcem
 
 ---
 
-## Performance Targets
+## Current Research Status
 
-| Metric | Target |
+| Area | Status |
 |--------|--------|
-| Annualized Sharpe | > 2.5 |
-| Max Drawdown | < 15% |
-| Win Rate | > 52% |
-| Avg R:R Ratio | > 1.5 |
-| Calmar Ratio | > 1.8 |
+| Causal data contract, labels, core features, and experiment artifacts | Implemented and tested |
+| Baseline and temporal out-of-sample experiments | Implemented; current repository-data experiments do **not** pass promotion gates |
+| Cost-scenario backtest and drawdown gate | Implemented and tested |
+| Broker/paper adapter | Deferred pending positive, independently reviewed research evidence |
+
+No return, Sharpe, win-rate, or drawdown target is a promise or a deployment criterion by itself. Every candidate must pass the documented out-of-sample and cost-aware readiness gates.
 
 ---
 
@@ -98,18 +99,25 @@ cd forex-neural-engine
 # Install dependencies
 pip install -r requirements.txt
 
-# Configure environment
-cp configs/config.example.yaml configs/config.yaml
-# Edit configs/config.yaml with your broker credentials and settings
+# Generate a strict OHLCV-derived feature matrix (no synthetic bid/ask or alternative data)
+python scripts/generate_features.py \
+  --input data/EUR_USD_ticks.csv \
+  --output artifacts/research_data/EUR_USD_core_features.csv \
+  --pair EUR_USD --provider repository_csv
 
-# Start infrastructure
-docker-compose up -d
+# Train a causal baseline and save OOS diagnostics
+python scripts/run_baseline_experiment.py \
+  --raw data/EUR_USD_ticks.csv \
+  --features artifacts/research_data/EUR_USD_core_features.csv
 
-# Run backtests
-python scripts/run_backtest.py --config configs/backtest.yaml
+# Evaluate only OOS predictions under explicitly declared scenario costs
+python scripts/evaluate_oos_backtest.py artifacts/experiments/<run-id> \
+  --half-spread-bps 0.5 --slippage-bps 0.5
 
-# Start live paper trading
-python scripts/run_paper_trading.py --config configs/paper.yaml
+# Record the formal promotion-gate result
+python scripts/run_readiness_gates.py artifacts/experiments/<run-id>
+
+# Broker/paper execution remains disabled until a candidate passes review.
 ```
 
 ---
