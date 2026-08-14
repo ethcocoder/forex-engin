@@ -86,3 +86,15 @@ def test_chronological_subperiods_preserve_all_oos_observations() -> None:
     assert table["observations"].sum() == len(_predictions())
     assert table["start_timestamp"].iloc[0] < table["start_timestamp"].iloc[1]
     assert (table["active_observations"] >= 0).all()
+
+
+def test_backtest_respects_model_abstention() -> None:
+    predictions = _predictions().assign(abstain=True)
+    result = run_label_aligned_backtest(
+        predictions,
+        ResearchBacktestConfig(half_spread_bps=1.0, slippage_bps=1.0),
+    )
+    assert (result.events["position"] == 0.0).all()
+    assert (result.events["turnover"] == 0.0).all()
+    assert result.metrics["estimated_cost_return"] == 0.0
+    assert result.metrics["abstention_rate"] == 1.0

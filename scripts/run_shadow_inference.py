@@ -59,7 +59,11 @@ def main() -> None:
     )
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     gate = json.loads(gate_path.read_text(encoding="utf-8"))
-    expected_columns = metadata["feature_columns"]
+    expected_columns = metadata.get("feature_columns") or metadata.get(
+        "research_metadata", {}
+    ).get("feature_columns") or metadata.get("feature_schema", {}).get("columns")
+    if not expected_columns:
+        raise ValueError("The model artifact does not contain an auditable feature schema.")
     missing = [column for column in expected_columns if column not in features]
     if missing:
         raise ValueError(f"Fresh features do not match the model schema: {missing}")
@@ -71,14 +75,34 @@ def main() -> None:
     observation_timestamp = candidates.index[finite_rows][-1]
     feature_vector = candidates.loc[[observation_timestamp]]
     model = joblib.load(model_path)
-    prediction = float(model.predict(feature_vector)[0])
+    interval_lower = None
+    interval_upper = None
+    base_prediction_std = None
+    model_abstain = False
+    if hasattr(model, "predict_with_diagnostics"):
+        diagnostics = model.predict_with_diagnostics(feature_vector)
+        prediction = float(diagnostics["prediction"].iloc[0])
+        interval_lower = float(diagnostics["interval_lower"].iloc[0])
+        interval_upper = float(diagnostics["interval_upper"].iloc[0])
+        base_prediction_std = float(diagnostics["base_prediction_std"].iloc[0])
+        model_abstain = bool(diagnostics["abstain"].iloc[0])
+    else:
+        prediction = float(model.predict(feature_vector)[0])
     hypothetical_direction = (
-        "LONG" if prediction > args.signal_threshold else "SHORT" if prediction < -args.signal_threshold else "FLAT"
+        "FLAT"
+        if model_abstain
+        else "LONG"
+        if prediction > args.signal_threshold
+        else "SHORT"
+        if prediction < -args.signal_threshold
+        else "FLAT"
     )
 
     blockers: list[str] = []
     if not gate.get("passed_for_paper_candidate_review", False):
         blockers.append("model_failed_research_promotion_gates")
+    if model_abstain:
+        blockers.append("model_abstained_due_to_calibrated_uncertainty")
     blockers.extend(f"market_data_{reason}" for reason in eligibility.reasons)
 
     report = {
@@ -94,6 +118,10 @@ def main() -> None:
         "observation_close": float(raw.loc[observation_timestamp, "close"]),
         "model_run_id": metadata["run_id"],
         "prediction": prediction,
+        "interval_lower": interval_lower,
+        "interval_upper": interval_upper,
+        "base_prediction_std": base_prediction_std,
+        "model_abstain": model_abstain,
         "hypothetical_direction": hypothetical_direction,
         "signal_threshold": args.signal_threshold,
         "promotion_gate_passed": bool(gate.get("passed_for_paper_candidate_review")),

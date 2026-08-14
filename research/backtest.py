@@ -87,7 +87,14 @@ def run_label_aligned_backtest(
         raise ValueError("OOS predictions must be chronological.")
 
     data = oos_predictions.loc[:, ["prediction", "target"]].copy()
-    data = data.apply(pd.to_numeric, errors="coerce").dropna()
+    if "abstain" in oos_predictions.columns:
+        data["abstain"] = oos_predictions["abstain"].astype(bool)
+    else:
+        data["abstain"] = False
+    data[["prediction", "target"]] = data[["prediction", "target"]].apply(
+        pd.to_numeric, errors="coerce"
+    )
+    data = data.dropna(subset=["prediction", "target"])
     if data.empty:
         raise ValueError("No finite OOS predictions and targets are available.")
     if not np.isfinite(data.to_numpy(dtype=float)).all():
@@ -98,6 +105,7 @@ def run_label_aligned_backtest(
         1.0,
         np.where(data["prediction"] < -config.signal_threshold, -1.0, 0.0),
     )
+    raw_signal = np.where(data["abstain"].to_numpy(dtype=bool), 0.0, raw_signal)
     desired_position = raw_signal * config.position_fraction
     actual_position = np.zeros(len(data), dtype=float)
     turnover = np.zeros(len(data), dtype=float)
@@ -140,6 +148,7 @@ def run_label_aligned_backtest(
         {
             "prediction": data["prediction"],
             "target_log_return": data["target"],
+            "abstain": data["abstain"].to_numpy(dtype=bool),
             "desired_position": desired_position,
             "position": actual_position,
             "turnover": turnover,
@@ -164,6 +173,8 @@ def run_label_aligned_backtest(
         "mean_turnover": float(events["turnover"].mean()),
         "estimated_cost_return": float(events["cost_return"].sum()),
         "trade_events": float(trade_count),
+        "abstained_observations": float(events["abstain"].sum()),
+        "abstention_rate": float(events["abstain"].mean()),
         "halted": float(halted_at is not None),
     }
     return ResearchBacktestResult(
