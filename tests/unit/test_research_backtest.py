@@ -4,7 +4,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from research.backtest import ResearchBacktestConfig, run_label_aligned_backtest
+from research.backtest import (
+    ResearchBacktestConfig,
+    evaluate_chronological_subperiods,
+    evaluate_threshold_sensitivity,
+    run_label_aligned_backtest,
+)
 
 
 def _predictions() -> pd.DataFrame:
@@ -61,3 +66,23 @@ def test_backtest_rejects_missing_oos_columns() -> None:
 def test_cost_configuration_disallows_negative_assumptions() -> None:
     with pytest.raises(ValueError, match="cannot be negative"):
         ResearchBacktestConfig(half_spread_bps=-1.0)
+
+
+def test_threshold_sensitivity_is_diagnostic_and_reduces_activity() -> None:
+    table = evaluate_threshold_sensitivity(
+        _predictions(),
+        ResearchBacktestConfig(half_spread_bps=1.0, slippage_bps=1.0),
+        (0.0, 0.02),
+    )
+    assert table["post_hoc_only"].all()
+    assert table["active_observations"].iloc[1] <= table["active_observations"].iloc[0]
+    assert table["active_observations"].iloc[1] == 0
+
+
+def test_chronological_subperiods_preserve_all_oos_observations() -> None:
+    table = evaluate_chronological_subperiods(
+        _predictions(), ResearchBacktestConfig(), n_periods=2
+    )
+    assert table["observations"].sum() == len(_predictions())
+    assert table["start_timestamp"].iloc[0] < table["start_timestamp"].iloc[1]
+    assert (table["active_observations"] >= 0).all()

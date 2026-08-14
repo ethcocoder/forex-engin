@@ -172,3 +172,75 @@ def run_label_aligned_backtest(
         events=events,
         halted_at=halted_at,
     )
+
+
+def evaluate_threshold_sensitivity(
+    oos_predictions: pd.DataFrame,
+    base_config: ResearchBacktestConfig,
+    thresholds: tuple[float, ...],
+) -> pd.DataFrame:
+    """Evaluate fixed signal thresholds as a post-hoc robustness diagnostic.
+
+    The returned table is not a model-selection result: thresholds are evaluated
+    on already-held-out predictions and therefore cannot promote a candidate on
+    their own. Any future threshold must be specified on an earlier validation
+    period and confirmed on a separate untouched holdout.
+    """
+    from dataclasses import replace
+
+    if not thresholds:
+        raise ValueError("At least one signal threshold is required.")
+    rows: list[dict[str, float | int | bool]] = []
+    for threshold in thresholds:
+        if threshold < 0.0:
+            raise ValueError("Signal thresholds cannot be negative.")
+        result = run_label_aligned_backtest(
+            oos_predictions, replace(base_config, signal_threshold=float(threshold))
+        )
+        active_observations = int((result.events["position"] != 0.0).sum())
+        rows.append(
+            {
+                "signal_threshold": float(threshold),
+                "active_observations": active_observations,
+                "active_fraction": float(active_observations / len(result.events)),
+                **result.metrics,
+                "post_hoc_only": True,
+            }
+        )
+    return pd.DataFrame(rows).sort_values("signal_threshold").reset_index(drop=True)
+
+
+def evaluate_chronological_subperiods(
+    oos_predictions: pd.DataFrame,
+    config: ResearchBacktestConfig,
+    n_periods: int = 3,
+) -> pd.DataFrame:
+    """Evaluate one fixed policy across chronological OOS subperiods.
+
+    This is a robustness check, not a new optimisation. Each subperiod is
+    evaluated independently, making it visible when a full-sample metric is
+    concentrated in one historical segment.
+    """
+    if n_periods < 2:
+        raise ValueError("n_periods must be at least two.")
+    ordered = oos_predictions.sort_index()
+    if len(ordered) < n_periods:
+        raise ValueError("Not enough OOS rows for the requested subperiod count.")
+
+    rows: list[dict[str, float | int | str]] = []
+    for period_number, positions in enumerate(np.array_split(np.arange(len(ordered)), n_periods)):
+        segment = ordered.iloc[positions]
+        result = run_label_aligned_backtest(segment, config)
+        active_observations = int((result.events["position"] != 0.0).sum())
+        rows.append(
+            {
+                "period": period_number + 1,
+                "start_timestamp": segment.index[0].isoformat(),
+                "end_timestamp": segment.index[-1].isoformat(),
+                "observations": int(len(segment)),
+                "active_observations": active_observations,
+                "active_fraction": float(active_observations / len(segment)),
+                **result.metrics,
+            }
+        )
+    return pd.DataFrame(rows)

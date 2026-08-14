@@ -6,7 +6,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from research.contracts import DataContractError, MarketDataContract, build_dataset_manifest
+from research.contracts import (
+    DataContractError,
+    MarketDataContract,
+    MarketDataEligibilityPolicy,
+    assess_market_data_eligibility,
+    build_dataset_manifest,
+)
 from research.labels import ForwardReturnLabelSpec, build_forward_return_labels
 from research.splits import ExpandingPurgedWalkForwardSplit
 from research.training import BaselineTrainingConfig, build_research_matrix, run_ridge_walk_forward
@@ -113,3 +119,23 @@ def test_walk_forward_baseline_persists_auditable_artifacts(tmp_path) -> None:
         "kalman_velocity",
     ]
     assert np.isfinite(metadata["aggregate_metrics"]["rmse"])
+
+
+def test_execution_style_eligibility_requires_quotes_and_observed_volume() -> None:
+    raw = _raw_frame(300)
+    policy = MarketDataEligibilityPolicy(minimum_rows=256)
+    blocked = assess_market_data_eligibility(
+        raw, MarketDataContract(pair="EUR_USD"), policy
+    )
+    assert blocked.eligible is False
+    assert blocked.reasons == ("missing_executable_bid_ask",)
+
+    executable = raw.assign(
+        bid=raw["close"] - 0.00005,
+        ask=raw["close"] + 0.00005,
+    )
+    eligible = assess_market_data_eligibility(
+        executable, MarketDataContract(pair="EUR_USD"), policy
+    )
+    assert eligible.eligible is True
+    assert eligible.positive_volume_rows == len(executable)

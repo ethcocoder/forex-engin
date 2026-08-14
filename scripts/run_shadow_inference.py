@@ -19,6 +19,12 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from research.contracts import (
+    MarketDataContract,
+    MarketDataEligibilityPolicy,
+    assess_market_data_eligibility,
+)
+
 
 def _load_time_indexed_csv(path: Path) -> pd.DataFrame:
     frame = pd.read_csv(path, parse_dates=["timestamp"])
@@ -46,6 +52,11 @@ def main() -> None:
 
     raw = _load_time_indexed_csv(args.raw)
     features = _load_time_indexed_csv(args.features)
+    eligibility = assess_market_data_eligibility(
+        raw,
+        MarketDataContract(pair="EUR_USD", provider="shadow_source"),
+        MarketDataEligibilityPolicy(minimum_rows=256),
+    )
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     gate = json.loads(gate_path.read_text(encoding="utf-8"))
     expected_columns = metadata["feature_columns"]
@@ -68,10 +79,7 @@ def main() -> None:
     blockers: list[str] = []
     if not gate.get("passed_for_paper_candidate_review", False):
         blockers.append("model_failed_research_promotion_gates")
-    if "bid" not in raw.columns or "ask" not in raw.columns:
-        blockers.append("fresh_source_has_no_executable_bid_ask_quotes")
-    if "volume" not in raw.columns or float(raw["volume"].sum()) <= 0.0:
-        blockers.append("fresh_source_has_no_observed_fx_volume")
+    blockers.extend(f"market_data_{reason}" for reason in eligibility.reasons)
 
     report = {
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -79,6 +87,7 @@ def main() -> None:
         "order_action": "NONE",
         "broker_connection": "NONE",
         "source_rows": int(len(raw)),
+        "data_eligibility": eligibility.to_dict(),
         "source_first_timestamp": raw.index[0].isoformat(),
         "source_last_timestamp": raw.index[-1].isoformat(),
         "observation_timestamp": observation_timestamp.isoformat(),

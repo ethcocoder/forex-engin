@@ -154,3 +154,73 @@ def build_dataset_manifest(
         schema_sha256=_hash_strings(schema_values),
         content_sha256=content_sha256,
     )
+
+
+@dataclass(frozen=True)
+class MarketDataEligibilityPolicy:
+    """Minimum data evidence required for an execution-like simulation.
+
+    Contract validation establishes that a dataset is well formed. Eligibility is
+    stricter: it records whether the source has the fields needed to represent
+    executable trading rather than silently treating reference prices as fills.
+    """
+
+    minimum_rows: int = 256
+    require_executable_bid_ask: bool = True
+    require_positive_volume: bool = True
+
+    def __post_init__(self) -> None:
+        if self.minimum_rows < 1:
+            raise ValueError("minimum_rows must be positive.")
+
+
+@dataclass(frozen=True)
+class MarketDataEligibilityReport:
+    """Auditable determination of whether a source can support a given simulation."""
+
+    eligible: bool
+    reasons: tuple[str, ...]
+    rows: int
+    latest_timestamp: str
+    has_executable_bid_ask: bool
+    positive_volume_rows: int
+    median_bar_interval_seconds: float | None
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+def assess_market_data_eligibility(
+    frame: pd.DataFrame,
+    contract: MarketDataContract,
+    policy: MarketDataEligibilityPolicy = MarketDataEligibilityPolicy(),
+) -> MarketDataEligibilityReport:
+    """Assess source adequacy without loosening the underlying data contract."""
+    validated = contract.validate(frame)
+    reasons: list[str] = []
+    if len(validated) < policy.minimum_rows:
+        reasons.append("insufficient_history")
+
+    has_executable_bid_ask = {"bid", "ask"}.issubset(validated.columns)
+    if policy.require_executable_bid_ask and not has_executable_bid_ask:
+        reasons.append("missing_executable_bid_ask")
+
+    positive_volume_rows = int((validated["volume"] > 0.0).sum())
+    if policy.require_positive_volume and positive_volume_rows == 0:
+        reasons.append("missing_observed_volume")
+
+    if len(validated) > 1:
+        deltas = validated.index.to_series().diff().dropna().dt.total_seconds()
+        median_bar_interval_seconds: float | None = float(deltas.median())
+    else:
+        median_bar_interval_seconds = None
+
+    return MarketDataEligibilityReport(
+        eligible=not reasons,
+        reasons=tuple(reasons),
+        rows=len(validated),
+        latest_timestamp=validated.index[-1].isoformat(),
+        has_executable_bid_ask=has_executable_bid_ask,
+        positive_volume_rows=positive_volume_rows,
+        median_bar_interval_seconds=median_bar_interval_seconds,
+    )
