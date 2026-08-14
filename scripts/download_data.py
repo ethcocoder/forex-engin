@@ -132,11 +132,16 @@ def download_yfinance(pair: str, years: int, output_file: str):
         "Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"
     })
     
-    # yfinance FX volume is usually 0, so we mock it for the pipeline
+    # Yahoo Finance commonly reports zero FX volume. Preserve that fact rather
+    # than fabricating pseudo-volume; downstream validation can explicitly
+    # quarantine volume-dependent features when a source lacks usable volume.
     if df["volume"].sum() == 0:
-        import numpy as np
-        df["volume"] = np.random.randint(100, 1000, size=len(df))
-        
+        logger.warning(
+            "Source returned no FX volume; retaining zeros and recording the limitation",
+            symbol=symbol,
+        )
+        df["volume"] = 0.0
+
     df.to_csv(output_file)
     logger.info(f"Successfully saved {len(df)} rows to {output_file}")
 
